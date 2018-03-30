@@ -192,6 +192,7 @@ int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
+int sem_insert(token_list *t_list);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

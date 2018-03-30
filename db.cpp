@@ -331,6 +331,13 @@ int do_semantic(token_list *tok_list)
 		cur_cmd = LIST_SCHEMA;
 		cur = cur->next->next;
 	}
+	else if ((cur->tok_value == K_INSERT) &&
+					((cur->next != NULL) && (cur->next->tok_value == K_INTO)))
+	{
+		printf("INSERT INTO statement\n");
+		cur_cmd = LIST_SCHEMA;
+		cur = cur->next->next;
+	}
 	else
   {
 		printf("Invalid statement\n");
@@ -353,6 +360,8 @@ int do_semantic(token_list *tok_list)
 			case LIST_SCHEMA:
 						rc = sem_list_schema(cur);
 						break;
+			case INSERT:
+						rc = sem_insert(cur);
 			default:
 					; /* no action */
 		}
@@ -373,7 +382,7 @@ int sem_create_table(token_list *t_list)
 
 
 	memset(&tab_entry, '\0', sizeof(tpd_entry));
-	cur = t_list;
+	cur = t_list; 
 	if ((cur->tok_class != keyword) &&
 		  (cur->tok_class != identifier) &&
 			(cur->tok_class != type_name))
@@ -624,6 +633,24 @@ int sem_create_table(token_list *t_list)
 		}
 	}
   return rc;
+}
+
+int sem_insert(token_list *t_list) 
+{
+	int rc = 0;
+	token_list *cur;
+	cur = t_list;
+	int cur_id = 0;
+
+	if ((cur->tok_class != keyword) &&
+		  (cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
+	{
+		// Error
+		rc = INVALID_TABLE_NAME;
+		cur->tok_value = INVALID;
+	}
+
 }
 
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) 
