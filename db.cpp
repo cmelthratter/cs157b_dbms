@@ -641,17 +641,59 @@ int sem_insert(token_list *t_list)
 	token_list *cur;
 	cur = t_list;
 	int cur_id = 0;
+	tpd_entry tab_entry;
 
-	if ((cur->tok_class != keyword) &&
-		  (cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
+	if ((cur->tok_class != K_INSERT))
 	{
 		// Error
 		rc = INVALID_TABLE_NAME;
 		cur->tok_value = INVALID;
 	}
+	else 
+	{
+		cur = cur->next;
+		if (cur != K_INTO)
+		{
+			rc = INVALID_STATEMENT;
+			cur->tok_value = INVALID;
+		}
+		else 
+		{
 
+			cur = cur->next;
+			if ((tab_entry = get_tpd_from_list(cur->)) == NULL)
+			{
+				rc = TABLE_NOT_EXIST
+				cur->tok_value = INVALID;
+			}
+			else {
+
+
+				if (cur != K_VALUES)
+				{
+					rc = INVALID_STATEMENT;
+					cur->tok_value = INVALID;
+				}
+				else 
+				{
+					cur = cur->next;
+					if (cur != S_LEFT_PAREN)
+					{
+						rc = INVALID_STATEMENT;
+						cur->tok_value = INVALID;
+					}
+					else 
+					{
+						   
+					}
+				}
+			}
+		}
+	}
 }
+
+
+
 
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) 
 {
