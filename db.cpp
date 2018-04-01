@@ -684,7 +684,25 @@ int sem_insert(token_list *t_list)
 					}
 					else 
 					{
-						   
+						 if (cur != STRING_LITERAL &&
+						 		cur != INT_LITERAL)/*theyre not insert values into every column
+													so, we have to look for specified columns*/
+						 		{
+
+						 		}
+						 else if (cur == STRING_LITERAL || CUR == INT_LITERAL)
+						 {
+						 	/* we're going to insert into every columns*/
+
+							cd_entry *col_entry;
+							col_entry = (col_entry*) malloc(sizeof(cd_entry));
+							memset((void*) col_entry, '\0', sizeof(cd_entry));//init cd_entry memory block, remove garbage
+							for (int i = 0; i < tab_entry->num_columns; i++)
+							{
+								if (read_column_from_file(tab_entryu, i, col_entry) < 0) 
+									printf("ERROR: could not read column from file\n");
+							}
+						 }  
 					}
 				}
 			}
@@ -692,7 +710,27 @@ int sem_insert(token_list *t_list)
 	}
 }
 
+int read_column_from_file(tpd_entry *tab_entry, int column_no, cd_entry *dest) {
 
+	FILE *fp = NULL;
+	char *filename = (char*) malloc(sizeof(table->table_name) + 4);
+
+	strcpy(filename, tab_entry->table_name);
+	strcat(filename, ".tab");
+	
+	if (fopen(filename, "br") == NULL) {
+		printf("ERROR: could not read table from file\n");
+		return -1;
+	}
+	
+
+	fseek(fp, sizeof(tpd_entry), 1);
+	fseek(fp, sizeof(cd_entry), column_no);
+	fread(cd_entry, sizeof(cd_entry), 1, fp);
+
+	return 0;
+
+}
 
 
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) 
