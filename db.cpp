@@ -686,10 +686,30 @@ int sem_insert(token_list *t_list)
 				 	/* we're going to insert into every columns*/
 
 					
-					printf("Found literal\n");
-					for (int i = 0; i < tab_entry->num_columns; i++)
+					FILE* fp;
+					char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
+
+					strcpy(filename, tab_entry->table_name);
+					strcat(filename, ".tab");
+					if ((fp = fopen(filename, "ba+")) == NULL) 
 					{
+						printf("ERROR: unable to read table from file\n");
+						return FILE_OPEN_ERROR;
+					}
+
+					table_file_header* header;
+					header = (table_file_header*) malloc(sizeof(table_file_header));
+
+					fread((void*) header, sizeof(table_file_header), 1, fp);
+					fseek(fp, sizeof(tpd_entry) + sizeof(table_file_header), SEEK_SET);
+
+					for (int i = 0; i < tab_entry->num_columns; i++)
+					{	
+						fwrite(cur->tok_string, sizeof(char), sizeof(cur->tok_string), fp );
 						
+						fseek(fp, sizeof(cur->tok_string), SEEK_CUR);
+						cur = cur->next;
+						cur = cur->next;
 				 	}	  
 				 }
 			}
@@ -697,27 +717,6 @@ int sem_insert(token_list *t_list)
 	}
 }
 
-int read_column_from_file(tpd_entry *tab_entry, int column_no, cd_entry *dest) {
-
-	FILE *fp = NULL;
-	char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
-
-	strcpy(filename, tab_entry->table_name);
-	strcat(filename, ".tab");
-	
-	if (fopen(filename, "br") == NULL) {
-		printf("ERROR: could not read table from file\n");
-		return -1;
-	}
-	
-
-	fseek(fp, sizeof(tpd_entry), 1);
-	fseek(fp, sizeof(cd_entry), column_no);
-	fread(dest, sizeof(cd_entry), 1, fp);
-
-	return 0;
-
-}
 
 
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) 
@@ -759,12 +758,18 @@ int write_table_to_file(tpd_entry* table, cd_entry* columns)
 	strcpy(filename, table->table_name);
 	strcat(filename, ".tab");
 
+	table_file_header* tf_header;
+	tf_header = (table_file_header*) malloc(sizeof(table_file_header));
+	memset((void*) tf_header, '\0', sizeof(table_file_header));
+	build_table_file_header_struct(table, columns, tf_header);
+
 	/*calculate file sizes*/
 
 	if ((fp = fopen(filename, "ab")) == NULL) {
 		printf("ERROR: unable to open file\n ");
 		return -1;
 	}
+	fwrite(tf_header, sizeof(tf_header), 1, fp);
 	fwrite(table, sizeof(tpd_entry), 1, fp);
 	if (ferror(fp))//check for write error
 	{
@@ -784,6 +789,7 @@ int write_table_to_file(tpd_entry* table, cd_entry* columns)
 		fflush(fp);
 	}
 	free(filename);
+	free(tf_header);
 	fclose(fp);
 
 	return 0;
