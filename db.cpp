@@ -641,9 +641,9 @@ int sem_insert(token_list *t_list)
 	token_list *cur;
 	cur = t_list;
 	int cur_id = 0;
-	tpd_entry tab_entry;
+	tpd_entry* tab_entry;
 
-	if ((cur->tok_class != K_INSERT))
+	if ((cur->tok_value != K_INSERT))
 	{
 		// Error
 		rc = INVALID_TABLE_NAME;
@@ -652,7 +652,7 @@ int sem_insert(token_list *t_list)
 	else 
 	{
 		cur = cur->next;
-		if (cur != K_INTO)
+		if (cur->tok_value != K_INTO)
 		{
 			rc = INVALID_STATEMENT;
 			cur->tok_value = INVALID;
@@ -661,15 +661,15 @@ int sem_insert(token_list *t_list)
 		{
 
 			cur = cur->next;
-			if ((tab_entry = get_tpd_from_list(cur->)) == NULL)
+			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
 			{
-				rc = TABLE_NOT_EXIST
+				rc = TABLE_NOT_EXIST;
 				cur->tok_value = INVALID;
 			}
 			else {
 
 
-				if (cur != K_VALUES)
+				if (cur->tok_value != K_VALUES)
 				{
 					rc = INVALID_STATEMENT;
 					cur->tok_value = INVALID;
@@ -677,20 +677,20 @@ int sem_insert(token_list *t_list)
 				else 
 				{
 					cur = cur->next;
-					if (cur != S_LEFT_PAREN)
+					if (cur->tok_value != S_LEFT_PAREN)
 					{
 						rc = INVALID_STATEMENT;
 						cur->tok_value = INVALID;
 					}
 					else 
 					{
-						 if (cur != STRING_LITERAL &&
-						 		cur != INT_LITERAL)/*theyre not insert values into every column
+						 if (cur->tok_class != STRING_LITERAL &&
+						 		cur->tok_class != INT_LITERAL)/*theyre not insert values into every column
 													so, we have to look for specified columns*/
 						 		{
 
 						 		}
-						 else if (cur == STRING_LITERAL || CUR == INT_LITERAL)
+						 else if (cur->tok_class == STRING_LITERAL || cur->tok_class == INT_LITERAL)
 						 {
 						 	/* we're going to insert into every columns*/
 
@@ -699,7 +699,7 @@ int sem_insert(token_list *t_list)
 							memset((void*) col_entry, '\0', sizeof(cd_entry));//init cd_entry memory block, remove garbage
 							for (int i = 0; i < tab_entry->num_columns; i++)
 							{
-								if (read_column_from_file(tab_entryu, i, col_entry) < 0) 
+								if (read_column_from_file(tab_entry, i, col_entry) < 0) 
 									printf("ERROR: could not read column from file\n");
 							}
 						 }  
