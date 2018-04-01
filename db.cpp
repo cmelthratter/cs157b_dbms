@@ -118,6 +118,7 @@ int get_token(char* command, token_list** tok_list)
 				temp_string[i++] = *cur++;
 				add_to_list(tok_list, temp_string, error, INVALID);
 				rc = INVALID;
+				printf("INVALID STATEMENT, 121: %s\n", temp_string);
 				done = true;
 			}
 			else
@@ -153,6 +154,7 @@ int get_token(char* command, token_list** tok_list)
 					{
 						add_to_list(tok_list, temp_string, error, INVALID);
 						rc = INVALID;
+						printf("INVALID STATEMENT, 156: %s\n", temp_string);
 						done = true;
 					}
 				}
@@ -181,6 +183,7 @@ int get_token(char* command, token_list** tok_list)
 				temp_string[i++] = *cur++;
 				add_to_list(tok_list, temp_string, error, INVALID);
 				rc = INVALID;
+				printf("INVALID STATEMENT, 184: %s\n", temp_string);
 				done = true;
 			}
 			else
@@ -239,6 +242,7 @@ int get_token(char* command, token_list** tok_list)
 				add_to_list(tok_list, temp_string, error, INVALID);
 				rc = INVALID;
 				done = true;
+				printf("INVALID STATEMENT, 243: %s\n", temp_string);
 			}
       else /* must be a ' */
       {
@@ -264,6 +268,7 @@ int get_token(char* command, token_list** tok_list)
 				temp_string[i++] = *cur++;
 				add_to_list(tok_list, temp_string, error, INVALID);
 				rc = INVALID;
+				printf("INVALID STATEMENT, 271: %s\n", temp_string);
 				done = true;
 			}
 		}
@@ -335,7 +340,7 @@ int do_semantic(token_list *tok_list)
 					((cur->next != NULL) && (cur->next->tok_value == K_INTO)))
 	{
 		printf("INSERT INTO statement\n");
-		cur_cmd = LIST_SCHEMA;
+		cur_cmd = INSERT;
 		cur = cur->next->next;
 	}
 	else
@@ -642,69 +647,51 @@ int sem_insert(token_list *t_list)
 	cur = t_list;
 	int cur_id = 0;
 	tpd_entry* tab_entry;
-
-	if ((cur->tok_value != K_INSERT))
+	printf("Current statement: %s\n", cur->tok_string);
+	
+	if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
 	{
-		// Error
-		rc = INVALID_TABLE_NAME;
+		rc = TABLE_NOT_EXIST;
 		cur->tok_value = INVALID;
+		printf("INVALID STATEMENT, 656: %s\n", cur->tok_string);
 	}
-	else 
-	{
+	else {
 		cur = cur->next;
-		if (cur->tok_value != K_INTO)
+		if (cur->tok_value != K_VALUES)
 		{
 			rc = INVALID_STATEMENT;
 			cur->tok_value = INVALID;
+			printf("INVALID STATEMENT: %s\n", cur->tok_string);
 		}
 		else 
 		{
-
 			cur = cur->next;
-			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+			if (cur->tok_value != S_LEFT_PAREN)
 			{
-				rc = TABLE_NOT_EXIST;
+				rc = INVALID_STATEMENT;
 				cur->tok_value = INVALID;
+				printf("INVALID STATEMENT: %s\n", cur->tok_string);
 			}
-			else {
+			else 
+			{
+				cur = cur->next;
+				 if (cur->tok_value != STRING_LITERAL &&
+				 		cur->tok_value != INT_LITERAL)/*theyre not insert values into every column
+											so, we have to look for specified columns*/
+				 		{
+				 			printf("Found identifiers: %d, %s, %d\n", cur->tok_class, cur->tok_string, cur->tok_value);
+				 		}
+				 else if (cur->tok_value == STRING_LITERAL || cur->tok_value == INT_LITERAL)
+				 {
+				 	/* we're going to insert into every columns*/
 
-
-				if (cur->tok_value != K_VALUES)
-				{
-					rc = INVALID_STATEMENT;
-					cur->tok_value = INVALID;
-				}
-				else 
-				{
-					cur = cur->next;
-					if (cur->tok_value != S_LEFT_PAREN)
+					
+					printf("Found literal\n");
+					for (int i = 0; i < tab_entry->num_columns; i++)
 					{
-						rc = INVALID_STATEMENT;
-						cur->tok_value = INVALID;
-					}
-					else 
-					{
-						 if (cur->tok_class != STRING_LITERAL &&
-						 		cur->tok_class != INT_LITERAL)/*theyre not insert values into every column
-													so, we have to look for specified columns*/
-						 		{
-
-						 		}
-						 else if (cur->tok_class == STRING_LITERAL || cur->tok_class == INT_LITERAL)
-						 {
-						 	/* we're going to insert into every columns*/
-
-							cd_entry *col_entry;
-							col_entry = (col_entry*) malloc(sizeof(cd_entry));
-							memset((void*) col_entry, '\0', sizeof(cd_entry));//init cd_entry memory block, remove garbage
-							for (int i = 0; i < tab_entry->num_columns; i++)
-							{
-								if (read_column_from_file(tab_entry, i, col_entry) < 0) 
-									printf("ERROR: could not read column from file\n");
-							}
-						 }  
-					}
-				}
+						
+				 	}	  
+				 }
 			}
 		}
 	}
@@ -713,7 +700,7 @@ int sem_insert(token_list *t_list)
 int read_column_from_file(tpd_entry *tab_entry, int column_no, cd_entry *dest) {
 
 	FILE *fp = NULL;
-	char *filename = (char*) malloc(sizeof(table->table_name) + 4);
+	char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
 
 	strcpy(filename, tab_entry->table_name);
 	strcat(filename, ".tab");
@@ -726,7 +713,7 @@ int read_column_from_file(tpd_entry *tab_entry, int column_no, cd_entry *dest) {
 
 	fseek(fp, sizeof(tpd_entry), 1);
 	fseek(fp, sizeof(cd_entry), column_no);
-	fread(cd_entry, sizeof(cd_entry), 1, fp);
+	fread(dest, sizeof(cd_entry), 1, fp);
 
 	return 0;
 
