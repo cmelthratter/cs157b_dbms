@@ -757,6 +757,7 @@ int write_table_to_file(tpd_entry* table, cd_entry* columns)
 	char *filename = (char*) malloc(sizeof(table->table_name) + 4);
 	strcpy(filename, table->table_name);
 	strcat(filename, ".tab");
+	int bytes = 0;
 
 	table_file_header* tf_header;
 	tf_header = (table_file_header*) malloc(sizeof(table_file_header));
@@ -770,7 +771,9 @@ int write_table_to_file(tpd_entry* table, cd_entry* columns)
 		return -1;
 	}
 	fwrite(tf_header, sizeof(tf_header), 1, fp);
+	fflush(fp);
 	fwrite(table, sizeof(tpd_entry), 1, fp);
+	fflush(fp);
 	if (ferror(fp))//check for write error
 	{
 		remove(table->table_name);
@@ -788,8 +791,6 @@ int write_table_to_file(tpd_entry* table, cd_entry* columns)
 		 } 
 		fflush(fp);
 	}
-	free(filename);
-	free(tf_header);
 	fclose(fp);
 
 	return 0;
