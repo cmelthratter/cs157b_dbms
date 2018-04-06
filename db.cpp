@@ -674,44 +674,33 @@ int sem_insert(token_list *t_list)
 			}
 			else 
 			{
-				cur = cur->next;
-				 if (cur->tok_value != STRING_LITERAL &&
-				 		cur->tok_value != INT_LITERAL)/*theyre not insert values into every column
-											so, we have to look for specified columns*/
-				 		{
-				 			printf("Found identifiers: %d, %s, %d\n", cur->tok_class, cur->tok_string, cur->tok_value);
-				 		}
-				 else if (cur->tok_value == STRING_LITERAL || cur->tok_value == INT_LITERAL)
-				 {
-				 	/* we're going to insert into every columns*/
-
-					
-					FILE* fp;
-					char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
-
-					strcpy(filename, tab_entry->table_name);
-					strcat(filename, ".tab");
-					if ((fp = fopen(filename, "ba+")) == NULL) 
+				char[header->record_size];
+				while(!rc)
+				{
+					cur = cur->next;
+					int elements_written = 0;
+					if (cur->tok_value == STRING_LITERAL || cur->tok_value == INT_LITERAL)
 					{
-						printf("ERROR: unable to read table from file\n");
-						return FILE_OPEN_ERROR;
-					}
-
-					table_file_header* header;
-					header = (table_file_header*) malloc(sizeof(table_file_header));
-
-					fread((void*) header, sizeof(table_file_header), 1, fp);
-					fseek(fp, sizeof(tpd_entry) + sizeof(table_file_header), SEEK_SET);
-
-					for (int i = 0; i < tab_entry->num_columns; i++)
-					{	
-						fwrite(cur->tok_string, sizeof(char), sizeof(cur->tok_string), fp );
 						
-						fseek(fp, sizeof(cur->tok_string), SEEK_CUR);
-						cur = cur->next;
-						cur = cur->next;
-				 	}	  
-				 }
+						FILE* fp;
+						char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
+
+						strcpy(filename, tab_entry->table_name);
+						strcat(filename, ".tab");
+						if ((fp = fopen(filename, "ba+")) == NULL) 
+						{
+							printf("ERROR: unable to read table from file\n");
+							return FILE_OPEN_ERROR;
+						}
+
+						table_file_header* header;
+						header = (table_file_header*) malloc(sizeof(table_file_header));
+
+
+						fread((void*) header, sizeof(table_file_header), 1, fp);
+						fseek(fp, sizeof(tpd_entry) + sizeof(table_file_header), SEEK_SET);
+					}  
+				}
 			}
 		}
 	}
