@@ -193,6 +193,8 @@ int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
 int sem_insert(token_list *t_list);
+void get_table_file_name(char* table_name, char* filename);
+int write_record_to_table_file(char* record, table_file_header* tf_header, tpd_entry* tab_entry);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

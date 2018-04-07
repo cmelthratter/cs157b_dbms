@@ -630,7 +630,7 @@ int sem_create_table(token_list *t_list)
 						table_file_header* header = (table_file_header*) malloc(24);
 						memset(header, '\0', sizeof(table_file_header));
 						build_table_file_header_struct(new_entry, col_entry, header);
-						write_table_to_file(new_entry, col_entry);
+						write_table_to_file(new_entry, col_entry, header);
 						free(new_entry);
 					}
 				}
@@ -674,36 +674,96 @@ int sem_insert(token_list *t_list)
 			}
 			else 
 			{
-				char[header->record_size];
-				while(!rc)
+				char buffer[header->record_size];
+				memset(buffer, '\0', header->record_size);
+				cur = cur->next;
+				int elements_written = 0;
+				int index = 0;
+				cd_entry* col_entry;
+				col_entry = (cd_entry*) malloc(sizeof(cd_entry));
+
+				FILE* fp;
+				char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
+				
+				strcpy(filename, tab_entry->table_name);
+				strcat(filename, ".tab");
+				if ((fp = fopen(filename, "ba+")) == NULL) 
 				{
-					cur = cur->next;
-					int elements_written = 0;
-					if (cur->tok_value == STRING_LITERAL || cur->tok_value == INT_LITERAL)
+					printf("ERROR: unable to read table from file\n");
+					return FILE_OPEN_ERROR;
+				}
+
+				table_file_header* header;
+				header = (table_file_header*) malloc(sizeof(table_file_header));
+
+				fread((void*) header, sizeof(table_file_header), 1, fp);
+				fseek(fp, sizeof(tpd_entry) + sizeof(table_file_header), SEEK_SET);
+
+				while(!rc && cur->tok_value != S_RIGHT_PAREN)
+				{
+					if (elements_written > tab_entry->num_columns)
+					{
+						rc = COLUMN_NOT_EXIST;
+					}
+					fread((void*) col_entry, sizeof(cd_entry), 1, fp);
+					else if (cur->tok_value == STRING_LITERAL)
 					{
 						
-						FILE* fp;
-						char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
+						buffer[index++] = (char) strlen(cur->tok_string) + '0';
+						for (index; index < strlen(cur->tok_string); index++)
+							buffer[index] = cur->token_string[index];
 
-						strcpy(filename, tab_entry->table_name);
-						strcat(filename, ".tab");
-						if ((fp = fopen(filename, "ba+")) == NULL) 
+						index += (col_entry->col_len - index) + 1;
+						elements_written++;
+					}
+					else if (cur->tok_value == INT_LITERAL)
+					{
+						buffer[index++] = (char) strlen(cur->tok_string) + '0';
+						for (index; index < strlen(cur->tok_string); index++)
 						{
-							printf("ERROR: unable to read table from file\n");
-							return FILE_OPEN_ERROR;
+							buffer[index] = cur->token_string[index];
 						}
 
-						table_file_header* header;
-						header = (table_file_header*) malloc(sizeof(table_file_header));
-
-
-						fread((void*) header, sizeof(table_file_header), 1, fp);
-						fseek(fp, sizeof(tpd_entry) + sizeof(table_file_header), SEEK_SET);
-					}  
+						index += (sizeof(int) - index) + 1;
+						elements_written++;
+					}
+					cur = cur->next->next; //discard the comma and go to the next column entry
 				}
+
+				printf("Done reading insert statement, writing record to file.\n");
+				if (write_record_to_table_File(record, header, tab_entry)){
+					printf("successfully wrote record");
+				}
+
+				free(buffer);
+				free(tf_header);
+				free(tab_entry);
+				free(buffer);
+				free(filename);
+				free(col_entry);
 			}
 		}
 	}
+}
+
+int write_record_to_table_file(char* record, table_file_header* tf_header, tpd_entry* tab_entry)
+{
+	FILE* fp;
+	char[MAX_IDENT_LEN + 8] filename;
+	get_table_file_name(tab_entry->table_name, filename);
+
+	if ((fp = fopen(filename, "wb")) == NULL)
+		printf("ERROR: Unable to open table file: %s\n", filename);
+
+	fwrite(record, sizeof(record), 1, fp);
+	
+	
+}
+
+void get_table_file_name(char* table_name, char* filename)
+{
+	strcpy(filename, table_name);
+	strcat(filename, ".tab");
 }
 
 
@@ -740,18 +800,13 @@ void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_f
 
 //writes a table to a .tab file
 //returns 0 if successfully written to file, -1 if there was any write errors.
-int write_table_to_file(tpd_entry* table, cd_entry* columns)
+int write_table_to_file(tpd_entry* table, cd_entry* columns, table_file_header* tf_header)
 {
 	FILE *fp = NULL;
 	char *filename = (char*) malloc(sizeof(table->table_name) + 4);
 	strcpy(filename, table->table_name);
 	strcat(filename, ".tab");
 	int bytes = 0;
-
-	table_file_header* tf_header;
-	tf_header = (table_file_header*) malloc(sizeof(table_file_header));
-	memset((void*) tf_header, '\0', sizeof(table_file_header));
-	build_table_file_header_struct(table, columns, tf_header);
 
 	/*calculate file sizes*/
 
