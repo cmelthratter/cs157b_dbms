@@ -186,7 +186,7 @@ typedef enum error_return_codes
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
 int do_semantic(token_list *tok_list);
-int write_table_to_file(tpd_entry* table, cd_entry* columns);
+int write_table_to_file(tpd_entry* table, cd_entry* columns, table_file_header* header);
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) ;
 int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);

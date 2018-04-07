@@ -673,14 +673,8 @@ int sem_insert(token_list *t_list)
 				printf("INVALID STATEMENT: %s\n", cur->tok_string);
 			}
 			else 
+
 			{
-				char buffer[header->record_size];
-				memset(buffer, '\0', header->record_size);
-				cur = cur->next;
-				int elements_written = 0;
-				int index = 0;
-				cd_entry* col_entry;
-				col_entry = (cd_entry*) malloc(sizeof(cd_entry));
 
 				FILE* fp;
 				char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
@@ -692,26 +686,34 @@ int sem_insert(token_list *t_list)
 					printf("ERROR: unable to read table from file\n");
 					return FILE_OPEN_ERROR;
 				}
-
 				table_file_header* header;
 				header = (table_file_header*) malloc(sizeof(table_file_header));
-
 				fread((void*) header, sizeof(table_file_header), 1, fp);
 				fseek(fp, sizeof(tpd_entry) + sizeof(table_file_header), SEEK_SET);
 
+				char buffer[header->record_size];
+				memset(buffer, '\0', header->record_size);
+				cur = cur->next;
+				int elements_written = 0;
+				int index = 0;
+				cd_entry* col_entry;
+				col_entry = (cd_entry*) malloc(sizeof(cd_entry));
+
+				
+
 				while(!rc && cur->tok_value != S_RIGHT_PAREN)
 				{
+					fread((void*) col_entry, sizeof(cd_entry), 1, fp);
 					if (elements_written > tab_entry->num_columns)
 					{
 						rc = COLUMN_NOT_EXIST;
 					}
-					fread((void*) col_entry, sizeof(cd_entry), 1, fp);
 					else if (cur->tok_value == STRING_LITERAL)
 					{
 						
 						buffer[index++] = (char) strlen(cur->tok_string) + '0';
 						for (index; index < strlen(cur->tok_string); index++)
-							buffer[index] = cur->token_string[index];
+							buffer[index] = cur->tok_string[index];
 
 						index += (col_entry->col_len - index) + 1;
 						elements_written++;
@@ -721,7 +723,7 @@ int sem_insert(token_list *t_list)
 						buffer[index++] = (char) strlen(cur->tok_string) + '0';
 						for (index; index < strlen(cur->tok_string); index++)
 						{
-							buffer[index] = cur->token_string[index];
+							buffer[index] = cur->tok_string[index];
 						}
 
 						index += (sizeof(int) - index) + 1;
@@ -731,12 +733,12 @@ int sem_insert(token_list *t_list)
 				}
 
 				printf("Done reading insert statement, writing record to file.\n");
-				if (write_record_to_table_File(record, header, tab_entry)){
+				if (write_record_to_table_file(buffer, header, tab_entry))
 					printf("successfully wrote record");
-				}
+				
 
 				free(buffer);
-				free(tf_header);
+				free(header);
 				free(tab_entry);
 				free(buffer);
 				free(filename);
@@ -749,7 +751,7 @@ int sem_insert(token_list *t_list)
 int write_record_to_table_file(char* record, table_file_header* tf_header, tpd_entry* tab_entry)
 {
 	FILE* fp;
-	char[MAX_IDENT_LEN + 8] filename;
+	char filename[MAX_IDENT_LEN + 8];
 	get_table_file_name(tab_entry->table_name, filename);
 
 	if ((fp = fopen(filename, "wb")) == NULL)
