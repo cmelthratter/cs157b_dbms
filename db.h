@@ -2,7 +2,7 @@
 db.h - This file contains all the structures, defines, and function
 	prototype for the db.exe program.
 *********************************************************************/
-
+#include <stdio.h>
 #define MAX_IDENT_LEN   16
 #define MAX_NUM_COL			16
 #define MAX_TOK_LEN			32
@@ -178,7 +178,10 @@ typedef enum error_return_codes
   /* Must add all the possible errors from I/U/D + SELECT here */
 	FILE_OPEN_ERROR = -299,			// -299
 	DBFILE_CORRUPTION,					// -298
-	MEMORY_ERROR							  // -297
+	MEMORY_ERROR,							  // -297
+	NULL_INSERT,						//-296
+	FILE_WRITE_ERROR				//-295  
+
 } return_codes;
 
 
@@ -186,15 +189,17 @@ typedef enum error_return_codes
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
 int do_semantic(token_list *tok_list);
-int write_table_to_file(tpd_entry* table, cd_entry* columns, table_file_header* header);
+int write_table_to_file(tpd_entry* table, cd_entry* columns, table_file_header* header, unsigned char** records);
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) ;
 int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
+unsigned char** load_table_records(tpd_entry*, table_file_header*);
 int sem_insert(token_list *t_list);
+int sem_select(token_list *t_list);
 void get_table_file_name(char* table_name, char* filename);
-int write_record_to_table_file(char* record, table_file_header* tf_header, tpd_entry* tab_entry);
+cd_entry* load_columns_from_file(tpd_entry* tab_entry);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

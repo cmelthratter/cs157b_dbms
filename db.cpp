@@ -343,8 +343,15 @@ int do_semantic(token_list *tok_list)
 		cur_cmd = INSERT;
 		cur = cur->next->next;
 	}
+	else if ((cur->tok_value == K_SELECT) &&
+					((cur->next != NULL) && (cur->next->tok_value == S_STAR)))
+	{
+		printf("SELECT statement\n");
+		cur_cmd = SELECT;
+		cur = cur->next;
+	}
 	else
-  {
+  	{
 		printf("Invalid statement\n");
 		rc = cur_cmd;
 	}
@@ -367,6 +374,8 @@ int do_semantic(token_list *tok_list)
 						break;
 			case INSERT:
 						rc = sem_insert(cur);
+			case SELECT:
+						rc = sem_select(cur);
 			default:
 					; /* no action */
 		}
@@ -627,11 +636,12 @@ int sem_create_table(token_list *t_list)
 									 sizeof(cd_entry) * tab_entry.num_columns);
 	
 						rc = add_tpd_to_list(new_entry);
-						table_file_header* header = (table_file_header*) malloc(24);
+						table_file_header* header = (table_file_header*) malloc(sizeof(table_file_header));
 						memset(header, '\0', sizeof(table_file_header));
 						build_table_file_header_struct(new_entry, col_entry, header);
-						write_table_to_file(new_entry, col_entry, header);
+						write_table_to_file(new_entry, col_entry, header, NULL);
 						free(new_entry);
+						free(header);
 					}
 				}
 			}
@@ -647,7 +657,6 @@ int sem_insert(token_list *t_list)
 	cur = t_list;
 	int cur_id = 0;
 	tpd_entry* tab_entry;
-	printf("Current statement: %s\n", cur->tok_string);
 	
 	if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
 	{
@@ -666,6 +675,9 @@ int sem_insert(token_list *t_list)
 		else 
 		{
 			cur = cur->next;
+
+			table_file_header* header;
+			cd_entry* columns;
 			if (cur->tok_value != S_LEFT_PAREN)
 			{
 				rc = INVALID_STATEMENT;
@@ -673,117 +685,232 @@ int sem_insert(token_list *t_list)
 				printf("INVALID STATEMENT: %s\n", cur->tok_string);
 			}
 			else 
-
 			{
+				cur = cur->next;
 
 				FILE* fp;
 				char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
 				
 				strcpy(filename, tab_entry->table_name);
 				strcat(filename, ".tab");
-				if ((fp = fopen(filename, "ba+")) == NULL) 
+				if ((fp = fopen(filename, "ab+")) == NULL) 
 				{
 					printf("ERROR: unable to read table from file\n");
 					return FILE_OPEN_ERROR;
 				}
-				table_file_header* header;
 				header = (table_file_header*) malloc(sizeof(table_file_header));
-				fread((void*) header, sizeof(table_file_header), 1, fp);
-				fseek(fp, sizeof(tpd_entry) + sizeof(table_file_header), SEEK_SET);
 
-				char buffer[header->record_size];
+				fread((void*) header, sizeof(table_file_header), 1, fp);
+				fseek(fp, tab_entry->cd_offset, SEEK_CUR);
+				columns = load_columns_from_file(tab_entry);
+
+
+
+				unsigned char buffer[header->record_size];
 				memset(buffer, '\0', header->record_size);
-				cur = cur->next;
+				unsigned char** records;
+				records = load_table_records(tab_entry, header);
 				int elements_written = 0;
 				int index = 0;
-				cd_entry* col_entry;
-				col_entry = (cd_entry*) malloc(sizeof(cd_entry));
-
-				
-
-				while(!rc && cur->tok_value != S_RIGHT_PAREN)
+				while(!rc)
 				{
-					fread((void*) col_entry, sizeof(cd_entry), 1, fp);
 					if (elements_written > tab_entry->num_columns)
 					{
 						rc = COLUMN_NOT_EXIST;
+					} 
+					else if (cur->tok_value == S_COMMA) 
+					{
+						cur = cur->next;
+						continue;
 					}
 					else if (cur->tok_value == STRING_LITERAL)
 					{
-						
-						buffer[index++] = (char) strlen(cur->tok_string) + '0';
-						for (index; index < strlen(cur->tok_string); index++)
-							buffer[index] = cur->tok_string[index];
+						if (strlen(cur->tok_string) == 0 || strlen(cur->tok_string) > columns[elements_written].col_len)
+						{
+							rc = INVALID_COLUMN_LENGTH;
+							cur->tok_value = INVALID_STATEMENT;
+							printf("ERROR: invalid length for column: %s\n", columns[elements_written].col_name);
+							return rc;
+						}
+						else if (columns[elements_written].col_type == T_CHAR || columns[elements_written].col_type == T_VARCHAR)
+						{
+							buffer[index++] = (unsigned char) strlen(cur->tok_string);
+							int i = 0;
+							for (i; i < strlen(cur->tok_string); i++)
+								buffer[index++] = cur->tok_string[i];
 
-						index += (col_entry->col_len - index) + 1;
-						elements_written++;
+							index += (columns[elements_written++].col_len - index) + 1;
+							cur = cur->next;
+
+						}
+						else
+						{
+							
+							printf("ERROR: invalid type in value: %s\n", cur->tok_string  );
+							rc = INVALID_TYPE_NAME;
+							return rc;
+						}
 					}
 					else if (cur->tok_value == INT_LITERAL)
 					{
-						buffer[index++] = (char) strlen(cur->tok_string) + '0';
-						for (index; index < strlen(cur->tok_string); index++)
-						{
-							buffer[index] = cur->tok_string[index];
-						}
 
-						index += (sizeof(int) - index) + 1;
-						elements_written++;
+						if (columns[elements_written].col_type != T_INT)
+						{
+							printf("ERROR: invalid type in value: %s\n", cur->tok_string);
+							rc = INVALID_TYPE_NAME;
+							return rc;
+						}
+						else
+						{
+							int value = atoi(cur->tok_string);
+							int temp = value;
+							int size = 1;
+							while ((temp /= 255) != 0)
+							{
+								size++;
+							}
+							buffer[index++] = (unsigned char) size;
+							unsigned char *bytes = (unsigned char*) malloc(5);
+							memcpy(bytes, (unsigned char*) &value, 5);
+							int i = 0;
+
+							for (i; i < 4; i++)
+								buffer[index++] = bytes[i++];
+							
+
+							index += (sizeof(int) - index) + 1;
+							elements_written++;
+							cur = cur->next;
+						}
 					}
-					cur = cur->next->next; //discard the comma and go to the next column entry
+					else if (cur->tok_value == K_NULL)
+					{
+						if (columns[elements_written].not_null)
+						{
+							rc = NULL_INSERT;
+							cur->tok_value = INVALID_STATEMENT;
+						}
+						else
+						{
+							
+							index += (columns[elements_written++].col_len);//length value is already 0, so we can just skip to the next column
+						}
+					}
+					else if (cur->tok_value == S_RIGHT_PAREN)
+					{
+						 rc = 0;
+						 break;// we're done
+
+					}
+					else
+					{
+						rc = INVALID_STATEMENT;
+						cur->tok_value = INVALID;
+					}
+					
 				}
 
-				printf("Done reading insert statement, writing record to file.\n");
-				if (write_record_to_table_file(buffer, header, tab_entry))
-					printf("successfully wrote record");
-				
+				printf("copying buffer to record in memory.\n");
+				memset(records[header->num_records], '\0', header->record_size);
+				memcpy((void*) records[header->num_records++], (void*) buffer, header->record_size);
 
-				free(buffer);
+				header->file_size += header->record_size;
+
+				//for (int i = 0; i < header->record_size; i++)
+				//		records[header->num_records++][i] = buffer[i];
+				printf("memcpy successful, writing records to file..\n");
+				if (!write_table_to_file(tab_entry, columns, header, records))
+				{
+					printf("ERROR: unable to write records to table file\n");
+					rc = FILE_OPEN_ERROR;
+				}
+				
 				free(header);
-				free(tab_entry);
-				free(buffer);
 				free(filename);
-				free(col_entry);
+				free(columns);
+				fflush(fp);
+				fclose(fp);
+			
 			}
 		}
 	}
+	return rc;
 }
 
-int write_record_to_table_file(char* record, table_file_header* tf_header, tpd_entry* tab_entry)
-{
-	FILE* fp;
-	char filename[MAX_IDENT_LEN + 8];
-	get_table_file_name(tab_entry->table_name, filename);
-
-	if ((fp = fopen(filename, "wb")) == NULL)
-		printf("ERROR: Unable to open table file: %s\n", filename);
-
-	fwrite(record, sizeof(record), 1, fp);
-	
-	
-}
-
+//returns a file name for a given table
 void get_table_file_name(char* table_name, char* filename)
 {
 	strcpy(filename, table_name);
 	strcat(filename, ".tab");
 }
 
+cd_entry* load_columns_from_file(tpd_entry* tab_entry)
+{
+	FILE* fp;
+	if ((fp = fopen("dbfile.bin", "rb")) == NULL)
+	{
+		printf("ERROR: unable to open database file\n");
+		return NULL;
+	}
 
+	cd_entry* columns = (cd_entry*) calloc(tab_entry->num_columns, sizeof(cd_entry));
+
+	fseek(fp, sizeof(tpd_list), SEEK_SET);
+
+	for (int i = 0; i < tab_entry->num_columns; i++)
+		fread((void*) &columns[i], sizeof(cd_entry), 1, fp);
+		
+	fclose(fp);
+	return columns;
+}
+
+
+//loads the records of a table + 100 records worth of space.
+//returns a pointer to the beginning of the block of memory
+
+unsigned char** load_table_records(tpd_entry* tab_entry, table_file_header* tf_header)
+{	
+	
+	FILE* fp;
+	char* filename = (char*) malloc(sizeof(tab_entry->table_name) + 5);
+
+	get_table_file_name(tab_entry->table_name, filename);
+
+	if ((fp = fopen(filename, "rb")) == NULL)
+	{
+		printf("ERROR: UNABLE TO OPEN FILE FOR TABLE %s\n", tab_entry->table_name);
+		return NULL;
+	}
+
+	unsigned char **records;
+	records = (unsigned char**) calloc(sizeof(char**), 100);
+	//memset(records, '\0', sizeof(char) * tf_header->record_size * 100);
+
+	for (int i = 0; i < 100; i++)
+	
+		records[i] = (unsigned char*) calloc(tf_header->record_size, 1);
+	
+	if (tf_header->num_records == 0) return records;
+
+	fseek(fp, tf_header->record_offset, SEEK_SET);
+	int i = 0;
+	for (i; i < tf_header->num_records; i++) 
+	{
+		fread((void*) records[i++], sizeof(tf_header->record_size), 1, fp);
+	}
+	fclose(fp);
+	return records;
+}
 
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) 
 {
-	FILE* fp = NULL;
-	char *filename = (char*) malloc(sizeof(table->table_name) + 4);
-
-	strcpy(filename, table->table_name);
-	strcat(filename, ".tab");
 
 	for (int i = 0; i < table->num_columns; i++) {
 
 		switch(columns->col_type) {
 			case T_INT:
-				printf("col_len = %d\n", columns->col_len); 
-				header->record_size += 1 + (columns->col_len);
+				header->record_size += 5;
+
 			break;
 			case T_CHAR:
 			case T_VARCHAR:
@@ -791,55 +918,208 @@ void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_f
 			break;
 		}
 
-		header->num_records++;
 		columns++;
 	}
-	printf("num_records = %d, record_size = %d\n", header->num_records, header->record_size);
-	memcpy((void*) &header->tpd_ptr, (void*) table, sizeof(tpd_entry));
+
+	while (header->record_size % 4 != 0)
+		header->record_size++;
+	header->record_offset = sizeof(table_file_header) - sizeof(void*);
+	header->file_size = sizeof(table_file_header) - sizeof(void*);
+	//the sizeof(*header) function return 32 instead of 36, so thats why I add the random hardcoded 4
+
 }
 
 
 
 //writes a table to a .tab file
 //returns 0 if successfully written to file, -1 if there was any write errors.
-int write_table_to_file(tpd_entry* table, cd_entry* columns, table_file_header* tf_header)
+int write_table_to_file(tpd_entry* tab_entry, cd_entry* columns, table_file_header* tf_header, unsigned char** records)
 {
 	FILE *fp = NULL;
-	char *filename = (char*) malloc(sizeof(table->table_name) + 4);
-	strcpy(filename, table->table_name);
+	char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
+	strcpy(filename, tab_entry->table_name);
 	strcat(filename, ".tab");
-	int bytes = 0;
+	//int bytes = 0;
 
 	/*calculate file sizes*/
 
-	if ((fp = fopen(filename, "ab")) == NULL) {
+	if ((fp = fopen(filename, "wb")) == NULL) 
+	{
 		printf("ERROR: unable to open file\n ");
-		return -1;
+		return 0;
 	}
-	fwrite(tf_header, sizeof(tf_header), 1, fp);
-	fflush(fp);
-	fwrite(table, sizeof(tpd_entry), 1, fp);
-	fflush(fp);
+	fwrite(tf_header, sizeof(table_file_header) - sizeof(void*), 1, fp);
 	if (ferror(fp))//check for write error
 	{
-		remove(table->table_name);
+		remove(tab_entry->table_name);
 		printf("ERROR: unable to write to .tab file\n");
-		return -1;
+		return 0;
 	}
+
+	printf("Writing records...\n");
+	
+	for (int i = 0; i < tf_header->num_records; i++)
+	{
+		fseek(fp, sizeof(tf_header->record_size), SEEK_CUR);
+		char buffer[tf_header->record_size];
+		memcpy(buffer, records[i], tf_header->record_size);
+		fwrite(buffer, sizeof(buffer), 1, fp);
+	}
+
 	fflush(fp);
-	for (int i = 0; i < table->num_columns; i++) {
-		 fwrite(columns++, sizeof(cd_entry), 1, fp);//write each column entry struct to file, check for error
-		 if (ferror(fp))
-		 {
-		 	remove(table->table_name);
-		 	printf("ERROR: unable to write to .tab file\n");
-			return -1;
-		 } 
-		fflush(fp);
-	}
 	fclose(fp);
 
-	return 0;
+	return 1;
+}
+
+int sem_select(token_list *t_list)
+{
+
+	token_list *cur = t_list;
+	int rc = 0;
+	tpd_entry *tab_entry = NULL;
+	tab_entry = (tpd_entry*) malloc(sizeof(tpd_entry));
+	if (cur->tok_value != S_STAR)
+	{
+		rc = INVALID_COLUMN_NAME;
+		cur->tok_value = INVALID;
+		printf("INVALID STATEMENT: %s\n", cur->tok_string);
+	}
+	else
+	{
+		cur = cur->next;
+		if (cur->tok_value != K_FROM)
+		{
+			rc = INVALID_COLUMN_NAME;
+			cur->tok_value = INVALID;
+			printf("INVALID STATEMENT: %s\n", cur->tok_string);
+		}
+		else
+		{
+			cur = cur->next;
+			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+			{
+				rc = TABLE_NOT_EXIST;
+				cur->tok_value = TABLE_NOT_EXIST;
+				printf("TABLE DOES NOT EXIST: %s\n", cur->tok_string);
+			}
+			else
+			{
+				table_file_header* header;
+				header = (table_file_header*) malloc(sizeof(table_file_header));
+				memset(header, '\0', sizeof(table_file_header));
+				FILE* fp;
+				char filename[MAX_IDENT_LEN + 4];
+				get_table_file_name(tab_entry->table_name, filename);
+				if ((fp = fopen(filename, "rb")) == NULL) {
+					printf("ERROR: unable to open file\n ");
+					rc = FILE_OPEN_ERROR;
+				}
+				fread(header, sizeof(table_file_header), 1, fp);
+
+				if (ferror(fp))
+				{
+					printf("ERROR: unable to read from file\n");
+					fclose(fp);
+					rc = FILE_OPEN_ERROR;
+				}
+
+				
+				cd_entry* columns;
+				columns = load_columns_from_file(tab_entry);
+				//print header
+				for (int i = 0; i < tab_entry->num_columns - 1; i++) 
+				{
+					printf("+----------------");
+				}
+
+				printf("+----------------+\n");
+				
+				for (int i = 0; i < tab_entry->num_columns; i++) 
+				{
+
+					printf("|% 16s", columns[i].col_name);
+					
+				}
+				printf("|\n");
+				for (int i = 0; i < tab_entry->num_columns - 1; i++) 
+				{
+					printf("+----------------");
+				}
+
+				printf("+----------------+\n");
+				char *buffer = (char*) calloc(header->record_size , sizeof(char));
+				fseek(fp, header->record_offset, SEEK_SET);
+				for (int i = 0; i < header->num_records; i++)
+				{
+
+					fread(buffer, header->record_size, 1, fp);
+
+					int index = 0;
+					for (int i = 0; i < tab_entry->num_columns; i++) 
+					{
+
+						if (columns[i].col_type == T_INT)
+						{
+							
+							int size = (int) buffer[index++];
+							char int_buffer[size];
+							int j = 0;
+							for (j; j < size; j++)
+							{
+								int_buffer[j] = buffer[index + j];
+							}
+							index += (columns[i].col_len - j) + j;
+							int value = 0;
+							if (size == 1)
+								value = (int) *int_buffer;
+							else
+								value = atoi(int_buffer);
+							printf("|% 16d", value);
+
+						}
+						else
+						{
+							int length = (int) buffer[index++] - '0';
+							if (length == 0) 
+							{
+								printf("|%- 16s", "(null)" );
+								continue;
+							}
+							char val_buff[length + 1];
+							int j = 0;
+							for (j; j < length; j++)
+							{
+								val_buff[j] = buffer[index + j];
+							}
+							index += (columns[i].col_len - j) + j;
+
+							val_buff[length] = '\0';
+
+
+							printf("|%- 16s", val_buff );
+						}
+	
+					}
+
+					printf("|\n");
+				}
+				for (int i = 0; i < tab_entry->num_columns - 1; i++) 
+				{
+					printf("+----------------");
+				}
+
+				printf("+----------------+\n");
+
+				fflush(fp);
+				fclose(fp);
+			}
+		}
+	}
+
+	//if ((tab_entry = get_tpd_from_list()))
+
+
 }
 
 
