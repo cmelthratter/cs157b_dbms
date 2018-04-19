@@ -374,8 +374,10 @@ int do_semantic(token_list *tok_list)
 						break;
 			case INSERT:
 						rc = sem_insert(cur);
+						break;
 			case SELECT:
 						rc = sem_select(cur);
+						break;
 			default:
 					; /* no action */
 		}
@@ -896,7 +898,7 @@ unsigned char** load_table_records(tpd_entry* tab_entry, table_file_header* tf_h
 	int i = 0;
 	for (i; i < tf_header->num_records; i++) 
 	{
-		fread((void*) records[i++], sizeof(tf_header->record_size), 1, fp);
+		fread((void*) records[i++], tf_header->record_size, 1, fp);
 	}
 	fclose(fp);
 	return records;
@@ -925,7 +927,6 @@ void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_f
 		header->record_size++;
 	header->record_offset = sizeof(table_file_header) - sizeof(void*);
 	header->file_size = sizeof(table_file_header) - sizeof(void*);
-	//the sizeof(*header) function return 32 instead of 36, so thats why I add the random hardcoded 4
 
 }
 
@@ -948,7 +949,7 @@ int write_table_to_file(tpd_entry* tab_entry, cd_entry* columns, table_file_head
 		printf("ERROR: unable to open file\n ");
 		return 0;
 	}
-	fwrite(tf_header, sizeof(table_file_header) - sizeof(void*), 1, fp);
+	fwrite(tf_header, sizeof(table_file_header), 1, fp);
 	if (ferror(fp))//check for write error
 	{
 		remove(tab_entry->table_name);
@@ -960,7 +961,6 @@ int write_table_to_file(tpd_entry* tab_entry, cd_entry* columns, table_file_head
 	
 	for (int i = 0; i < tf_header->num_records; i++)
 	{
-		fseek(fp, sizeof(tf_header->record_size), SEEK_CUR);
 		char buffer[tf_header->record_size];
 		memcpy(buffer, records[i], tf_header->record_size);
 		fwrite(buffer, sizeof(buffer), 1, fp);
@@ -1048,28 +1048,30 @@ int sem_select(token_list *t_list)
 				}
 
 				printf("+----------------+\n");
-				char *buffer = (char*) calloc(header->record_size , sizeof(char));
-				fseek(fp, header->record_offset, SEEK_SET);
+				unsigned char **records = load_table_records(tab_entry, header);
+				unsigned char buffer[header->record_size];
+
+				//  fseek(fp, header->record_offset, SEEK_SET);
 				for (int i = 0; i < header->num_records; i++)
 				{
 
-					fread(buffer, header->record_size, 1, fp);
+					memcpy(buffer, records[i], header->record_size);
 
 					int index = 0;
-					for (int i = 0; i < tab_entry->num_columns; i++) 
+					for (int j = 0; j < tab_entry->num_columns; j++) 
 					{
 
-						if (columns[i].col_type == T_INT)
+						if (columns[j].col_type == T_INT)
 						{
 							
 							int size = (int) buffer[index++];
 							char int_buffer[size];
-							int j = 0;
-							for (j; j < size; j++)
+							int k = 0;
+							for (k; k < size; k++)
 							{
-								int_buffer[j] = buffer[index + j];
+								int_buffer[k] = buffer[index + k];
 							}
-							index += (columns[i].col_len - j) + j;
+							index += (columns[i].col_len - k) + k;
 							int value = 0;
 							if (size == 1)
 								value = (int) *int_buffer;
@@ -1080,19 +1082,19 @@ int sem_select(token_list *t_list)
 						}
 						else
 						{
-							int length = (int) buffer[index++] - '0';
-							if (length == 0) 
+							int length = (int) buffer[index++] + '0';
+							if (length <= 0) 
 							{
 								printf("|%- 16s", "(null)" );
 								continue;
 							}
 							char val_buff[length + 1];
-							int j = 0;
-							for (j; j < length; j++)
+							int k = 0;
+							for (k; k < length; k++)
 							{
-								val_buff[j] = buffer[index + j];
+								val_buff[k] = buffer[index + k];
 							}
-							index += (columns[i].col_len - j) + j;
+							index += (columns[j].col_len - k) + k;
 
 							val_buff[length] = '\0';
 
