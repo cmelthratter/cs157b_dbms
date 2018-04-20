@@ -878,7 +878,7 @@ unsigned char** load_table_records(tpd_entry* tab_entry, table_file_header* tf_h
 
 	get_table_file_name(tab_entry->table_name, filename);
 
-	if ((fp = fopen(filename, "rb")) == NULL)
+	if ((fp = fopen(filename, "rbc")) == NULL)
 	{
 		printf("ERROR: UNABLE TO OPEN FILE FOR TABLE %s\n", tab_entry->table_name);
 		return NULL;
@@ -890,15 +890,17 @@ unsigned char** load_table_records(tpd_entry* tab_entry, table_file_header* tf_h
 
 	for (int i = 0; i < 100; i++)
 	
-		records[i] = (unsigned char*) calloc(tf_header->record_size, 1);
+		records[i] = (unsigned char*) calloc((size_t) tf_header->record_size, 1);
 	
 	if (tf_header->num_records == 0) return records;
-
+    unsigned char buffer[tf_header->record_size];
+    memset(buffer, '\0', tf_header->record_size);
 	fseek(fp, tf_header->record_offset, SEEK_SET);
 	int i = 0;
 	for (i; i < tf_header->num_records; i++) 
 	{
-		fread((void*) records[i++], tf_header->record_size, 1, fp);
+		fread((void*) buffer, (size_t) tf_header->record_size, 1, fp);
+		memcpy ((void*) records[i], (void*) buffer, tf_header->record_size);
 	}
 	fclose(fp);
 	return records;
@@ -925,8 +927,8 @@ void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_f
 
 	while (header->record_size % 4 != 0)
 		header->record_size++;
-	header->record_offset = sizeof(table_file_header) - sizeof(void*);
-	header->file_size = sizeof(table_file_header) - sizeof(void*);
+	header->record_offset = sizeof(table_file_header);
+	header->file_size = sizeof(table_file_header);
 
 }
 
@@ -1082,7 +1084,7 @@ int sem_select(token_list *t_list)
 						}
 						else
 						{
-							int length = (int) buffer[index++] + '0';
+							int length = (int) buffer[index++];
 							if (length <= 0) 
 							{
 								printf("|%- 16s", "(null)" );
