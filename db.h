@@ -20,6 +20,7 @@ typedef struct cd_entry_def
 	int 		not_null;
 } cd_entry;
 
+
 /* Table packed descriptor sturcture = 4+20+4+4+4 = 36 bytes
    Minimum of 1 column in a table - therefore minimum size of
 	 1 valid tpd_entry is 36+36 = 72 bytes. */
@@ -189,17 +190,20 @@ typedef enum error_return_codes
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
 int do_semantic(token_list *tok_list);
-int write_table_to_file(tpd_entry* table, cd_entry* columns, table_file_header* header, unsigned char** records);
+int write_table_to_file(tpd_entry* table, cd_entry* columns, table_file_header* header, char** records);
 void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_file_header* header) ;
 int sem_create_table(token_list *t_list);
 int sem_drop_table(token_list *t_list);
 int sem_list_tables();
 int sem_list_schema(token_list *t_list);
-unsigned char** load_table_records(tpd_entry*, table_file_header*);
+char** load_table_records(tpd_entry*, table_file_header*);
 int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 void get_table_file_name(char* table_name, char* filename);
 cd_entry* load_columns_from_file(tpd_entry* tab_entry);
+char** select_records(cd_entry* cols, char** records, token_list* tok);
+char** project_records(cd_entry* cols, char** records);
+void print_records(char** records, cd_entry* cols);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

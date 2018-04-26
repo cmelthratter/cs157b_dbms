@@ -708,9 +708,9 @@ int sem_insert(token_list *t_list)
 
 
 
-				unsigned char buffer[header->record_size];
+				char buffer[header->record_size];
 				memset(buffer, '\0', header->record_size);
-				unsigned char** records;
+				char** records;
 				records = load_table_records(tab_entry, header);
 				int elements_written = 0;
 				int index = 0;
@@ -765,22 +765,14 @@ int sem_insert(token_list *t_list)
 						else
 						{
 							int value = atoi(cur->tok_string);
-							int temp = value;
-							int size = 1;
-							while ((temp /= 255) != 0)
-							{
-								size++;
-							}
-							buffer[index++] = (unsigned char) size;
-							unsigned char *bytes = (unsigned char*) malloc(5);
-							memcpy(bytes, (unsigned char*) &value, 5);
-							int i = 0;
+							unsigned char *bytes = (unsigned char*) calloc(1, sizeof(int));
+							memcpy((void*) bytes, (void*) &value, 8);
 
-							for (i; i < 4; i++)
-								buffer[index++] = bytes[i++];
-							
 
-							index += (sizeof(int) - index) + 1;
+							int i;
+							for (i = 0; i < 4; i++)
+								memcpy(&buffer[index++], &bytes[i], 1);
+
 							elements_written++;
 							cur = cur->next;
 						}
@@ -796,6 +788,7 @@ int sem_insert(token_list *t_list)
 						{
 							
 							index += (columns[elements_written++].col_len);//length value is already 0, so we can just skip to the next column
+							elements_written++;
 						}
 					}
 					else if (cur->tok_value == S_RIGHT_PAREN)
@@ -870,7 +863,7 @@ cd_entry* load_columns_from_file(tpd_entry* tab_entry)
 //loads the records of a table + 100 records worth of space.
 //returns a pointer to the beginning of the block of memory
 
-unsigned char** load_table_records(tpd_entry* tab_entry, table_file_header* tf_header)
+char** load_table_records(tpd_entry* tab_entry, table_file_header* tf_header)
 {	
 	
 	FILE* fp;
@@ -884,13 +877,13 @@ unsigned char** load_table_records(tpd_entry* tab_entry, table_file_header* tf_h
 		return NULL;
 	}
 
-	unsigned char **records;
-	records = (unsigned char**) calloc(sizeof(char**), 100);
+	char **records;
+	records = (char**) calloc(sizeof(char**), 100);
 	//memset(records, '\0', sizeof(char) * tf_header->record_size * 100);
 
 	for (int i = 0; i < 100; i++)
 	
-		records[i] = (unsigned char*) calloc((size_t) tf_header->record_size, 1);
+		records[i] = (char*) calloc((size_t) tf_header->record_size, 1);
 	
 	if (tf_header->num_records == 0) return records;
     unsigned char buffer[tf_header->record_size];
@@ -936,7 +929,7 @@ void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_f
 
 //writes a table to a .tab file
 //returns 0 if successfully written to file, -1 if there was any write errors.
-int write_table_to_file(tpd_entry* tab_entry, cd_entry* columns, table_file_header* tf_header, unsigned char** records)
+int write_table_to_file(tpd_entry* tab_entry, cd_entry* columns, table_file_header* tf_header, char** records)
 {
 	FILE *fp = NULL;
 	char *filename = (char*) malloc(sizeof(tab_entry->table_name) + 4);
@@ -979,9 +972,24 @@ int sem_select(token_list *t_list)
 
 	token_list *cur = t_list;
 	int rc = 0;
+	char col_names[MAX_NUM_COL][MAX_IDENT_LEN];
+	bool projection;
 	tpd_entry *tab_entry = NULL;
 	tab_entry = (tpd_entry*) malloc(sizeof(tpd_entry));
 	if (cur->tok_value != S_STAR)
+	{
+		int count = 0;
+		projection = true;
+		while (cur->tok_value != K_FROM)
+		{
+
+			strcpy(col_names[count++], cur->tok_string);
+
+		}
+	} else projection = false;
+
+	cur = cur->next;
+	if (cur->tok_value != K_FROM)
 	{
 		rc = INVALID_COLUMN_NAME;
 		cur->tok_value = INVALID;
@@ -990,68 +998,67 @@ int sem_select(token_list *t_list)
 	else
 	{
 		cur = cur->next;
-		if (cur->tok_value != K_FROM)
+		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
 		{
-			rc = INVALID_COLUMN_NAME;
-			cur->tok_value = INVALID;
-			printf("INVALID STATEMENT: %s\n", cur->tok_string);
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = TABLE_NOT_EXIST;
+			printf("TABLE DOES NOT EXIST: %s\n", cur->tok_string);
 		}
 		else
 		{
-			cur = cur->next;
-			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-			{
-				rc = TABLE_NOT_EXIST;
-				cur->tok_value = TABLE_NOT_EXIST;
-				printf("TABLE DOES NOT EXIST: %s\n", cur->tok_string);
+			table_file_header* header;
+			header = (table_file_header*) malloc(sizeof(table_file_header));
+			memset(header, '\0', sizeof(table_file_header));
+			FILE* fp;
+			char filename[MAX_IDENT_LEN + 4];
+			get_table_file_name(tab_entry->table_name, filename);
+			if ((fp = fopen(filename, "rb")) == NULL) {
+				printf("ERROR: unable to open file\n ");
+				rc = FILE_OPEN_ERROR;
 			}
-			else
+			fread(header, sizeof(table_file_header), 1, fp);
+
+			if (ferror(fp))
 			{
-				table_file_header* header;
-				header = (table_file_header*) malloc(sizeof(table_file_header));
-				memset(header, '\0', sizeof(table_file_header));
-				FILE* fp;
-				char filename[MAX_IDENT_LEN + 4];
-				get_table_file_name(tab_entry->table_name, filename);
-				if ((fp = fopen(filename, "rb")) == NULL) {
-					printf("ERROR: unable to open file\n ");
-					rc = FILE_OPEN_ERROR;
-				}
-				fread(header, sizeof(table_file_header), 1, fp);
+				printf("ERROR: unable to read from file\n");
+				fclose(fp);
+				rc = FILE_OPEN_ERROR;
+			}
 
-				if (ferror(fp))
-				{
-					printf("ERROR: unable to read from file\n");
-					fclose(fp);
-					rc = FILE_OPEN_ERROR;
-				}
 
-				
-				cd_entry* columns;
-				columns = load_columns_from_file(tab_entry);
+			cd_entry* columns;
+			columns = load_columns_from_file(tab_entry);
+			cur = cur->next;
+			if (!projection)
+			{
+                if (cur->tok_value == K_WHERE)
+                {
+
+                }
+
 				//print header
-				for (int i = 0; i < tab_entry->num_columns - 1; i++) 
+				for (int i = 0; i < tab_entry->num_columns - 1; i++)
 				{
 					printf("+----------------");
 				}
 
 				printf("+----------------+\n");
-				
-				for (int i = 0; i < tab_entry->num_columns; i++) 
+
+				for (int i = 0; i < tab_entry->num_columns; i++)
 				{
 
 					printf("|% 16s", columns[i].col_name);
-					
+
 				}
 				printf("|\n");
-				for (int i = 0; i < tab_entry->num_columns - 1; i++) 
+				for (int i = 0; i < tab_entry->num_columns - 1; i++)
 				{
 					printf("+----------------");
 				}
 
 				printf("+----------------+\n");
-				unsigned char **records = load_table_records(tab_entry, header);
-				unsigned char buffer[header->record_size];
+				char **records = load_table_records(tab_entry, header);
+				char buffer[header->record_size];
 
 				//  fseek(fp, header->record_offset, SEEK_SET);
 				for (int i = 0; i < header->num_records; i++)
@@ -1060,38 +1067,33 @@ int sem_select(token_list *t_list)
 					memcpy(buffer, records[i], header->record_size);
 
 					int index = 0;
-					for (int j = 0; j < tab_entry->num_columns; j++) 
+					for (int j = 0; j < tab_entry->num_columns; j++)
 					{
-
 						if (columns[j].col_type == T_INT)
 						{
-							
-							int size = (int) buffer[index++];
-							char int_buffer[size];
-							int k = 0;
-							for (k; k < size; k++)
-							{
-								int_buffer[k] = buffer[index + k];
-							}
-							index += (columns[i].col_len - k) + k;
-							int value = 0;
-							if (size == 1)
-								value = (int) *int_buffer;
-							else
-								value = atoi(int_buffer);
-							printf("|% 16d", value);
 
-						}
+							unsigned char int_buffer[sizeof(int)];
+							int k = 0;
+							memcpy((void*) int_buffer, (void*) &records[i][index], sizeof(int));
+							index += 4;
+							int num = 0;
+
+							num = (int) *int_buffer;
+							printf("|% 16d", num);
+
+					  	}
 						else
 						{
 							int length = (int) buffer[index++];
-							if (length <= 0) 
+							if (length <= 0)
 							{
 								printf("|%- 16s", "(null)" );
 								continue;
 							}
 							char val_buff[length + 1];
 							int k = 0;
+
+
 							for (k; k < length; k++)
 							{
 								val_buff[k] = buffer[index + k];
@@ -1103,12 +1105,12 @@ int sem_select(token_list *t_list)
 
 							printf("|%- 16s", val_buff );
 						}
-	
+
 					}
 
 					printf("|\n");
 				}
-				for (int i = 0; i < tab_entry->num_columns - 1; i++) 
+				for (int i = 0; i < tab_entry->num_columns - 1; i++)
 				{
 					printf("+----------------");
 				}
@@ -1118,11 +1120,45 @@ int sem_select(token_list *t_list)
 				fflush(fp);
 				fclose(fp);
 			}
+			else
+			{
+				if (cur->tok_value != K_WHERE)
+				{
+					rc = INVALID_STATEMENT;
+					cur->tok_value = INVALID;
+
+				}
+				else
+				{
+					while (cur->tok_class != terminator)
+					{
+						
+					}
+				}
+			}
 		}
 	}
 
+
 	//if ((tab_entry = get_tpd_from_list()))
 
+    return rc;
+}
+//selects records based on a conditional
+//tok should be everything after the WHERE statement
+char** select_records(cd_entry* cols, char** records, token_list* tok)
+{
+
+}
+
+
+char** project_records(cd_entry* cols, char** records)
+{
+
+}
+
+void print_records(char** records, cd_entry* cols)
+{
 
 }
 
