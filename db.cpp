@@ -1036,89 +1036,7 @@ int sem_select(token_list *t_list)
 
                 }
 
-				//print header
-				for (int i = 0; i < tab_entry->num_columns - 1; i++)
-				{
-					printf("+----------------");
-				}
 
-				printf("+----------------+\n");
-
-				for (int i = 0; i < tab_entry->num_columns; i++)
-				{
-
-					printf("|% 16s", columns[i].col_name);
-
-				}
-				printf("|\n");
-				for (int i = 0; i < tab_entry->num_columns - 1; i++)
-				{
-					printf("+----------------");
-				}
-
-				printf("+----------------+\n");
-				char **records = load_table_records(tab_entry, header);
-				char buffer[header->record_size];
-
-				//  fseek(fp, header->record_offset, SEEK_SET);
-				for (int i = 0; i < header->num_records; i++)
-				{
-
-					memcpy(buffer, records[i], header->record_size);
-
-					int index = 0;
-					for (int j = 0; j < tab_entry->num_columns; j++)
-					{
-						if (columns[j].col_type == T_INT)
-						{
-
-							unsigned char int_buffer[sizeof(int)];
-							int k = 0;
-							memcpy((void*) int_buffer, (void*) &records[i][index], sizeof(int));
-							index += 4;
-							int num = 0;
-
-							num = (int) *int_buffer;
-							printf("|% 16d", num);
-
-					  	}
-						else
-						{
-							int length = (int) buffer[index++];
-							if (length <= 0)
-							{
-								printf("|%- 16s", "(null)" );
-								continue;
-							}
-							char val_buff[length + 1];
-							int k = 0;
-
-
-							for (k; k < length; k++)
-							{
-								val_buff[k] = buffer[index + k];
-							}
-							index += (columns[j].col_len - k) + k;
-
-							val_buff[length] = '\0';
-
-
-							printf("|%- 16s", val_buff );
-						}
-
-					}
-
-					printf("|\n");
-				}
-				for (int i = 0; i < tab_entry->num_columns - 1; i++)
-				{
-					printf("+----------------");
-				}
-
-				printf("+----------------+\n");
-
-				fflush(fp);
-				fclose(fp);
 			}
 			else
 			{
@@ -1157,8 +1075,87 @@ char** project_records(cd_entry* cols, char** records)
 
 }
 
-void print_records(char** records, cd_entry* cols)
+void print_records(char** records, cd_entry* cols, table_file_header* header, int num_cols)
 {
+	//print header
+	for (int i = 0; i < num_cols - 1; i++)
+	{
+		printf("+----------------");
+	}
+
+	printf("+----------------+\n");
+
+	for (int i = 0; i < num_cols; i++)
+	{
+
+		printf("|% 16s", cols[i].col_name);
+
+	}
+	printf("|\n");
+	for (int i = 0; i < num_cols - 1; i++)
+	{
+		printf("+----------------");
+	}
+
+	printf("+----------------+\n");
+	char buffer[header->record_size];
+
+	//  fseek(fp, header->record_offset, SEEK_SET);
+	for (int i = 0; i < header->num_records; i++)
+	{
+
+		memcpy(buffer, records[i], header->record_size);
+
+		int index = 0;
+		for (int j = 0; j < num_cols; j++)
+		{
+			if (cols[j].col_type == T_INT)
+			{
+
+				unsigned char int_buffer[sizeof(int)];
+				int k = 0;
+				memcpy((void*) int_buffer, (void*) &records[i][index], sizeof(int));
+				index += 4;
+				int num = 0;
+
+				num = (int) *int_buffer;
+				printf("|% 16d", num);
+
+			}
+			else
+			{
+				int length = (int) buffer[index++];
+				if (length <= 0)
+				{
+					printf("|%- 16s", "(null)" );
+					continue;
+				}
+				char val_buff[length + 1];
+				int k = 0;
+
+
+				for (k; k < length; k++)
+				{
+					val_buff[k] = buffer[index + k];
+				}
+				index += (cols[j].col_len - k) + k;
+
+				val_buff[length] = '\0';
+
+
+				printf("|%- 16s", val_buff );
+			}
+
+		}
+
+		printf("|\n");
+	}
+	for (int i = 0; i < num_cols - 1; i++)
+	{
+		printf("+----------------");
+	}
+
+	printf("+----------------+\n");
 
 }
 
