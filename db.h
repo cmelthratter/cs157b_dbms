@@ -89,6 +89,7 @@ typedef enum t_class
    a single valid token.  Use for semantic processing. */
 typedef enum t_value
 {
+	T_NULL = 0,
 	T_INT = 10,		// 10 - new type should be added above this line
 	T_CHAR,		    // 11 
 	T_VARCHAR,		    // 12       
@@ -201,10 +202,11 @@ int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 void get_table_file_name(char* table_name, char* filename);
 cd_entry* load_columns_from_file(tpd_entry* tab_entry);
-char** select_records(cd_entry* cols, char** records, token_list* tok);
-char** project_records(cd_entry* cols, char** records);
-void print_records(char** records, cd_entry* cols);
-
+char** select_records(cd_entry* cols, char** records, token_list* tok, int num_records, int num_cols, int record_size, int *records_found);
+char** project_records(cd_entry* cols, cd_entry* proj_cols, int num_columns, char** records, int num_records);
+void print_records(char** records, cd_entry* cols, int records_size, int num_records, int num_cols);
+char* toupper(const char* string);
+cd_entry* get_projected_columns(cd_entry* columns, token_list* tok, int num_columns);
 /*
 	Keep a global list of tpd - in real life, this will be stored
 	in shared memory.  Build a set of functions/methods around this.
