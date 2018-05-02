@@ -344,7 +344,7 @@ int do_semantic(token_list *tok_list)
 		cur = cur->next->next;
 	}
 	else if ((cur->tok_value == K_SELECT) &&
-					((cur->next != NULL) && (cur->next->tok_value == S_STAR)))
+					((cur->next != NULL) && (cur->next->tok_value == S_STAR) || (cur->next != NULL) && (cur->next->tok_value == IDENT)))
 	{
 		printf("SELECT statement\n");
 		cur_cmd = SELECT;
@@ -972,20 +972,18 @@ int sem_select(token_list *t_list)
 
 	token_list *cur = t_list;
 	int rc = 0;
-	char col_names[MAX_NUM_COL][MAX_IDENT_LEN];
 	bool projection;
 	tpd_entry *tab_entry = NULL;
 	tab_entry = (tpd_entry*) malloc(sizeof(tpd_entry));
+	cd_entry* p_columns = NULL;
+	token_list* column_names = NULL;
+	int p_record_size = 0;
+	int num_pcols = 0;
 	if (cur->tok_value != S_STAR)
 	{
 		int count = 0;
 		projection = true;
-		while (cur->tok_value != K_FROM)
-		{
-
-			strcpy(col_names[count++], cur->tok_string);
-
-		}
+		column_names = cur;
 	} else projection = false;
 
 	cur = cur->next;
@@ -1028,6 +1026,7 @@ int sem_select(token_list *t_list)
 
 			cd_entry* columns;
 			columns = load_columns_from_file(tab_entry);
+			if (projection) p_columns = get_projected_columns(columns, column_names, tab_entry->num_columns, &p_record_size, &num_pcols);
 			char** records = load_table_records(tab_entry, header);
 			cur = cur->next;
 			if (!projection)
@@ -1049,32 +1048,27 @@ int sem_select(token_list *t_list)
 			{
 				if (cur->tok_value != K_WHERE)
 				{
-                    int records_found = 0;
-                    char** selection = select_records(columns, records, cur, header->num_records, tab_entry->num_columns, header->record_size, &records_found);
-                    int num_pcols = 0;
-                    cd_entry* pcols = get_projected_columns(columns, cur, tab_entry->num_columns);
-                    char** projected = project_records(columns, tab_entry->num_columns, pcols, num_pcols, records, records_found);
-                    print_records(projected, pcols, header->record_size, records_found, tab_entry->num_columns);
+                    //int records_found = 0;
+                    //char** selection = select_records(columns, records, cur, header->num_records, tab_entry->num_columns, header->record_size, &records_found);
+
+                    char** projected = project_records(columns, p_columns, tab_entry->num_columns, num_pcols, records, header->num_records, p_record_size);
+                    print_records(projected, p_columns, p_record_size, header->num_records, num_pcols);
 				}
 				else
 				{
-					while (cur->tok_class != terminator)
-					{
+                    int records_found = 0;
+                    char** selection = select_records(columns, records, cur, header->num_records, tab_entry->num_columns, header->record_size, &records_found);
 
-						int records_found = 0;
-						char** selection = select_records(columns, records, cur, header->num_records, tab_entry->num_columns, header->record_size, &records_found);
-						int num_pcols = 0;
-						cd_entry* pcols = get_projected_columns(columns, cur, tab_entry->num_columns);
-						char** projected = project_records(columns, tab_entry->num_columns, pcols, num_pcols, records, records_found);
-						print_records(projected, pcols, header->record_size, records_found, tab_entry->num_columns);
-					}
+
+                    char** projected = project_records(columns, p_columns, tab_entry->num_columns, num_pcols, selection, records_found, p_record_size);
+                    print_records(projected, p_columns, p_record_size, records_found, num_pcols);
 				}
 			}
 		}
 	}
-
-
-	//if ((tab_entry = get_tpd_from_list()))
+	if (column_names != NULL) free (column_names);
+	free (cur);
+	if (p_columns != NULL) free (p_columns);
 
     return rc;
 }
@@ -1092,7 +1086,6 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
 	{
         cur = tok;
 
-		int col_index = 0;
         token_value cond = K_NULL;
 		while (cur->tok_class != terminator)
 		{
@@ -1135,7 +1128,6 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
                                 }
                                 else
                                 {
-                                    col_index++;
                                     continue;//and
                                 }
 							}
@@ -1154,7 +1146,7 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
 							for (k; k < j; k++)
 							{
 								rec_index += cols[k].col_len;
-								if (cols[k].col_type == T_CHAR || cols[j].col_type == T_VARCHAR) rec_index++;
+								if (cols[j].col_type == T_CHAR || cols[j].col_type == T_VARCHAR) rec_index++;
 							}
 							//rec_index+= k;
 							memcpy(buffer, &records[i][rec_index], sizeof(int));
@@ -1172,7 +1164,6 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
 									{
                                         if (cond == K_AND)
                                         {
-                                            col_index++;
                                             continue;
                                         }
                                         else if (cond == K_OR || cond == K_NULL) {
@@ -1187,7 +1178,6 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
 									{
                                         if (cond == K_AND)
                                         {
-                                            col_index++;
                                             continue;
                                         }
                                         else if (cond == K_OR || cond == K_NULL) {
@@ -1201,7 +1191,6 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
 									if (cond_value < buf_value)
 									{
                                         if (cond == K_AND) {
-                                            col_index++;
                                             continue;
                                         }
                                         else if (cond == K_OR || cond == K_NULL) {
@@ -1237,6 +1226,158 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
 	return selection;
 
 }
+//deletes all records that meet a condition
+int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file_header* header, char** records)
+{
+	int num_deleted = 0;
+	token_list* cur = tok;
+	if (tok == NULL)//delete all records from table
+	{
+		for (int i = 0; i < header->num_records; i++)
+		{
+			memset((void*) records[i], '\0', (size_t) header->record_size);
+		}
+	}
+	else
+	{
+		token_value cond = K_NULL;
+		if (cur->next->tok_value == K_OR || cur->next->tok_value == K_AND)
+		{
+			cond = (token_value) cur->next->tok_value;
+		}
+		cur = cur->next; //skip the 'next' keyword
+		for (int i = 0; i < header->num_records; i++)
+		{
+
+			while(cur->tok_class != terminator)
+			{
+				if (cur->tok_value == IDENT)
+				{
+					for (int j = 0; j < num_cols; j++)
+					{
+						if (columns[j].col_type == T_CHAR || columns[j].col_type ==  T_VARCHAR)
+						{
+							int rec_index = 0;
+
+							for (int k = 0; k < j; k++)
+							{
+								rec_index += columns[k].col_len;
+								if (columns[k].col_type == T_CHAR || columns[j].col_type == T_VARCHAR) rec_index++;
+							}
+							int size = 0;
+							size = (int) records[i][rec_index++];
+							char buffer[size];
+							memcpy(buffer, &records[i][rec_index], (size_t) size);
+							cur = cur->next;
+							if (cur->tok_value != S_EQUAL)
+							{
+								return NULL;
+							}
+							cur = cur->next; // move to condition value
+							if (strncmp(toupper(buffer), toupper(cur->tok_string), (size_t) size) == 0)
+							{
+
+								if (cond == K_OR || cond == K_NULL )//its true, condition has been satisfied
+								{
+
+									(num_deleted)++;
+									records[i][0] = '\0';//mark this for deletion
+									break;
+								}
+								else
+								{
+
+									continue;//and
+								}
+							}
+							else if (cond == K_AND)//false with an AND
+							{
+
+								break;
+
+							}
+						}
+						else if (columns[j].col_type == T_INT)//we have an integer column
+						{
+							char buffer[4];
+							int rec_index = 0;
+							int k = 0;
+							for (k; k < j; k++)
+							{
+								rec_index += columns[k].col_len;
+								if (columns[j].col_type == T_CHAR || columns[j].col_type == T_VARCHAR) rec_index++;
+							}
+							//rec_index+= k;
+							memcpy(buffer, &records[i][rec_index], sizeof(int));
+							int buf_value = (int) *buffer;
+
+
+							cur = cur->next;
+							int cond_value = atoi(cur->next->tok_string);
+							switch(cur->tok_value)
+							{
+
+								case S_EQUAL:
+
+									if (cond_value == buf_value)
+									{
+										if (cond == K_AND)
+										{
+											continue;
+										}
+										else if (cond == K_OR || cond == K_NULL) {
+											num_deleted++;
+											records[i][0] = '\0';//mark this for deletion
+											break;
+										}
+									}
+									break;
+								case S_LESS:
+									if (cond_value > buf_value)
+									{
+										if (cond == K_AND)
+										{
+											continue;
+										}
+										else if (cond == K_OR || cond == K_NULL) {
+											num_deleted++;
+											records[i][0] = '\0';//mark this for deletion
+											break;
+										}
+									}
+									break;
+								case S_GREATER:
+									if (cond_value < buf_value)
+									{
+										if (cond == K_AND) {
+											continue;
+										}
+										else if (cond == K_OR || cond == K_NULL) {
+											num_deleted++;
+											records[i][0] = '\0';//mark this for deletion
+											break;
+										}
+
+									}
+									break;
+								default:
+									break;
+							}
+
+						}
+						else
+						{
+							printf("Invalid statement after WHERE\n");
+							return NULL;
+						}
+					}
+				}
+			}
+
+		}
+	}
+
+}
 //converts a string to all uppercase
 //helper function for selection, for comparing
 char* toupper(const char* string)
@@ -1253,34 +1394,43 @@ char* toupper(const char* string)
 
 	return result;
 }
-
-cd_entry* get_projected_columns(cd_entry* columns, token_list* tok, int num_columns)
+//returns a pointer to a columns entries for a projection operation
+// also stores the new record size and number of columns for the projection
+cd_entry* get_projected_columns(cd_entry* columns, token_list* tok, int num_columns, int* p_record_size, int* num_pcols)
 {
 	token_list* cur = tok;
-	cd_entry* pcolumns;
+	token_list* col_names = tok;
+
+	while (col_names->tok_value == IDENT) {
+		(*num_pcols)++;
+		col_names = col_names->next;
+	}
+	cd_entry* pcolumns = (cd_entry*) calloc(*num_pcols, sizeof(cd_entry) );
 	int index = 0;
+	int pindex = 0;
 	while (index < num_columns)
 	{
 		if (strcmp(toupper(cur->tok_string), toupper(columns[index].col_name)) == 0)
 		{
-
+            memcpy((void*) &pcolumns[pindex++], (void*) &columns[index], sizeof(cd_entry));
 		}
+		index++;
 	}
+	*p_record_size = get_record_size(pcolumns, *num_pcols);
+
+	return pcolumns;
 }
-char** project_records(cd_entry* cols, int num_cols, cd_entry* proj_cols, int num_pcols, char** records, int num_records)
+//returns the records for the projection
+char** project_records(cd_entry* cols, cd_entry* proj_cols, int num_cols, int num_pcols, char** records, int num_records, int p_record_size)
 {
 
-	int projection_size = 0;
-	for (int i = 0; i < num_pcols; i++ )
+
+
+	char** projection = (char**) calloc((size_t) num_records, (size_t) p_record_size);
+	for (int i = 0; i < num_records; i++)
 	{
-		if (proj_cols[i].col_type == T_CHAR || proj_cols[i].col_type == T_VARCHAR)
-			projection_size+= proj_cols[i].col_len;
-		else
-			projection_size += sizeof(int);
-
+		projection[i] = (char*) calloc(1, (size_t) p_record_size);
 	}
-
-	char** projection = (char**) calloc((size_t) num_records, (size_t) projection_size);
 	int cur_rec = 0;
 	int rec_index = 0;
 	int proj_index = 0;
@@ -1292,21 +1442,40 @@ char** project_records(cd_entry* cols, int num_cols, cd_entry* proj_cols, int nu
 			{
 				if (cols[j].col_id == proj_cols[i].col_id)
 				{
-					memcpy(&projection[cur_rec][proj_index], &records[cur_rec][rec_index], (size_t) proj_cols[i].col_len );
-					proj_index += proj_cols[i].col_len;
+					memcpy(&projection[cur_rec][proj_index], &records[cur_rec][rec_index], (size_t) cols[j].col_len );
+					if (cols[j].col_type == T_CHAR || cols[j].col_type == T_VARCHAR) proj_index += cols[j].col_len + 1;
+					else proj_index += sizeof(int);
 				}
-				rec_index += cols[j].col_len;
+				if (cols[j].col_type == T_CHAR || cols[j].col_type == T_VARCHAR) rec_index += cols[j].col_len + 1;
+				else rec_index += sizeof(int);
+
 			}
 
 		}
-
+		rec_index = 0;
+		proj_index = 0;
 		cur_rec++;
 	}
 
 	return projection;
 }
+//returns the record size of the new projection
+int get_record_size(cd_entry* columns, int num_cols)
+{
+    int projection_size = 0;
+    for (int i = 0; i < num_cols; i++ )
+    {
+        if (columns[i].col_type == T_CHAR || columns[i].col_type == T_VARCHAR)
+            projection_size+= columns[i].col_len;
+        else
+            projection_size += sizeof(int);
 
-void print_records(char** records, cd_entry* cols, int num_records, int record_size, int num_cols)
+    }
+
+    return projection_size;
+}
+//prints records to stdout in the specified format
+void print_records(char** records, cd_entry* cols,  int record_size, int num_records, int num_cols)
 {
 	//print header
 	for (int i = 0; i < num_cols - 1; i++)
