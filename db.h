@@ -136,7 +136,6 @@ typedef enum t_value
 
 /* This constants must be updated when add new keywords */
 #define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 30
-
 /* New keyword must be added in the same position/order as the enum
    definition above, otherwise the lookup will be wrong */
 char *keyword_table[] = 
@@ -200,8 +199,10 @@ int sem_list_schema(token_list *t_list);
 char** load_table_records(tpd_entry*, table_file_header*);
 int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
+int sem_delete(token_list *t_list);
 void get_table_file_name(char* table_name, char* filename);
 cd_entry* load_columns_from_file(tpd_entry* tab_entry);
+table_file_header* load_file_header(char* tablename);
 char** select_records(cd_entry* cols, char** records, token_list* tok, int num_records, int num_cols, int record_size, int *records_found);
 char** project_records(cd_entry* cols, cd_entry* proj_cols, int num_columns, int num_pcols, char** records, int num_records, int p_record_size);
 void print_records(char** records, cd_entry* cols, int records_size, int num_records, int num_cols);

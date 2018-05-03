@@ -350,6 +350,12 @@ int do_semantic(token_list *tok_list)
 		cur_cmd = SELECT;
 		cur = cur->next;
 	}
+    else if ((cur->tok_value == K_DELETE))
+    {
+        printf("SELECT statement\n");
+        cur_cmd = DELETE;
+        cur = cur->next;
+    }
 	else
   	{
 		printf("Invalid statement\n");
@@ -378,6 +384,8 @@ int do_semantic(token_list *tok_list)
 			case SELECT:
 						rc = sem_select(cur);
 						break;
+		    case DELETE:
+		                rc = sem_delete(cur);
 			default:
 					; /* no action */
 		}
@@ -859,6 +867,25 @@ cd_entry* load_columns_from_file(tpd_entry* tab_entry)
 	return columns;
 }
 
+table_file_header* load_file_header(char* tablename)
+{
+    FILE* fp;
+    char *filename = (char*) malloc(sizeof(tablename) + 4);
+    table_file_header* header;
+
+    strcpy(filename, tablename);
+    strcat(filename, ".tab");
+    if ((fp = fopen(filename, "ab+")) == NULL)
+    {
+        printf("ERROR: unable to read table from file\n");
+        return NULL;
+    }
+    header = (table_file_header*) malloc(sizeof(table_file_header));
+
+    fread((void*) header, sizeof(table_file_header), 1, fp);
+
+    return header;
+}
 
 //loads the records of a table + 100 records worth of space.
 //returns a pointer to the beginning of the block of memory
@@ -924,8 +951,6 @@ void build_table_file_header_struct(tpd_entry* table, cd_entry* columns, table_f
 	header->file_size = sizeof(table_file_header);
 
 }
-
-
 
 //writes a table to a .tab file
 //returns 0 if successfully written to file, -1 if there was any write errors.
@@ -1069,6 +1094,58 @@ int sem_select(token_list *t_list)
 	if (column_names != NULL) free (column_names);
 	free (cur);
 	if (p_columns != NULL) free (p_columns);
+
+    return rc;
+}
+
+int sem_delete(token_list *tok)
+{
+    table_file_header *header;
+    token_list *cur = tok;
+    tpd_entry *tab_entry;
+    cd_entry *columns;
+    int rc = 0;
+    char** records;
+
+
+	if (cur->tok_value != K_FROM)
+	{
+		printf("ERROR: invalid statement: %s", cur->tok_string);
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+	}
+	else
+	{
+		cur = cur->next;
+		header = load_file_header(cur->tok_string);
+		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+		{
+			printf("ERROR: table %s does not exist\n", cur->tok_string);
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = INVALID;
+
+		}
+		else
+		{
+			cur = cur->next;
+			columns = load_columns_from_file(tab_entry);
+			records = load_table_records(tab_entry, header);
+			if (cur->tok_value == EOC)
+			{
+
+				delete_records(NULL, columns, tab_entry->num_columns, header, records);
+				write_table_to_file(tab_entry, columns, header, records);
+			}
+			else if (cur->tok_value == K_WHERE)
+			{
+				delete_records(cur, columns, tab_entry->num_columns, header, records);
+				write_table_to_file(tab_entry, columns, header, records);
+			} else
+			{
+				printf("ERROR: invalid statement\n");
+			}
+		}
+	}
 
     return rc;
 }
@@ -1237,6 +1314,9 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 		{
 			memset((void*) records[i], '\0', (size_t) header->record_size);
 		}
+
+		header->file_size -= header->record_size * header->num_records;
+		header->num_records = 0;
 	}
 	else
 	{
@@ -1281,7 +1361,7 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 								{
 
 									(num_deleted)++;
-									records[i][0] = '\0';//mark this for deletion
+									memset(&records[i][0],'\0',1);//mark this for deletion
 									break;
 								}
 								else
@@ -1372,10 +1452,19 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 						}
 					}
 				}
+				cur = cur->next;
 			}
 
 		}
 	}
+
+	for (int i = 0; i < num_deleted; i++)
+    {
+        if (records[i][0] == '\0')
+            memcpy(records[i], records[(header->num_records)--], size_t (header->record_size));
+    }
+
+    return num_deleted;
 
 }
 //converts a string to all uppercase
