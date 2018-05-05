@@ -200,6 +200,7 @@ char** load_table_records(tpd_entry*, table_file_header*);
 int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
+int sem_update(token_list *t_list);
 void get_table_file_name(char* table_name, char* filename);
 cd_entry* load_columns_from_file(tpd_entry* tab_entry);
 table_file_header* load_file_header(char* tablename);

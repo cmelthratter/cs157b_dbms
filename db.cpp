@@ -352,10 +352,17 @@ int do_semantic(token_list *tok_list)
 	}
     else if ((cur->tok_value == K_DELETE))
     {
-        printf("SELECT statement\n");
+        printf("DELETE statement\n");
         cur_cmd = DELETE;
         cur = cur->next;
     }
+    else if ((cur->tok_value == K_UPDATE) && ((cur->next != NULL) &&(cur->next->tok_value == K_SET)))
+	{
+		printf("UPDATE statement\n");
+		cur_cmd = UPDATE;
+		cur = cur->next;
+	}
+
 	else
   	{
 		printf("Invalid statement\n");
@@ -386,6 +393,10 @@ int do_semantic(token_list *tok_list)
 						break;
 		    case DELETE:
 		                rc = sem_delete(cur);
+		                break;
+			case UPDATE:
+						rc = sem_update(cur);
+						break;
 			default:
 					; /* no action */
 		}
@@ -882,7 +893,7 @@ table_file_header* load_file_header(char* tablename)
     }
     header = (table_file_header*) malloc(sizeof(table_file_header));
 
-    fread((void*) header, sizeof(table_file_header), 1, fp);
+    fread(header, sizeof(table_file_header), 1, fp);
 
     return header;
 }
@@ -969,7 +980,7 @@ int write_table_to_file(tpd_entry* tab_entry, cd_entry* columns, table_file_head
 		printf("ERROR: unable to open file\n ");
 		return 0;
 	}
-	fwrite(tf_header, sizeof(table_file_header), 1, fp);
+	fwrite((void*) tf_header, sizeof(table_file_header), 1, fp);
 	if (ferror(fp))//check for write error
 	{
 		remove(tab_entry->table_name);
@@ -977,13 +988,12 @@ int write_table_to_file(tpd_entry* tab_entry, cd_entry* columns, table_file_head
 		return 0;
 	}
 
-	printf("Writing records...\n");
-	
 	for (int i = 0; i < tf_header->num_records; i++)
 	{
 		char buffer[tf_header->record_size];
-		memcpy(buffer, records[i], tf_header->record_size);
-		fwrite(buffer, sizeof(buffer), 1, fp);
+		memset(buffer, '\0', (size_t) tf_header->record_size);
+		memcpy(buffer, records[i], (size_t) tf_header->record_size);
+		fwrite(buffer, (size_t) tf_header->record_size, 1, fp);
 	}
 
 	fflush(fp);
@@ -1030,24 +1040,7 @@ int sem_select(token_list *t_list)
 		else
 		{
 			table_file_header* header;
-			header = (table_file_header*) malloc(sizeof(table_file_header));
-			memset(header, '\0', sizeof(table_file_header));
-			FILE* fp;
-			char filename[MAX_IDENT_LEN + 4];
-			get_table_file_name(tab_entry->table_name, filename);
-			if ((fp = fopen(filename, "rb")) == NULL) {
-				printf("ERROR: unable to open file\n ");
-				rc = FILE_OPEN_ERROR;
-			}
-			fread(header, sizeof(table_file_header), 1, fp);
-
-			if (ferror(fp))
-			{
-				printf("ERROR: unable to read from file\n");
-				fclose(fp);
-				rc = FILE_OPEN_ERROR;
-			}
-
+			header = load_file_header(tab_entry->table_name);
 
 			cd_entry* columns;
 			columns = load_columns_from_file(tab_entry);
@@ -1065,7 +1058,7 @@ int sem_select(token_list *t_list)
                 }
 				else if (cur->tok_class == terminator)
 				{
-					print_records(records, columns, header->num_records, header->record_size,  tab_entry->num_columns);
+					print_records(records, columns, header->record_size, header->num_records,  tab_entry->num_columns);
 				}
 
 			}
@@ -1308,7 +1301,7 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 {
 	int num_deleted = 0;
 	token_list* cur = tok;
-	if (tok == NULL)//delete all records from table
+	if (tok == NULL)//no condition, delete all records from table
 	{
 		for (int i = 0; i < header->num_records; i++)
 		{
@@ -1407,7 +1400,7 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 										}
 										else if (cond == K_OR || cond == K_NULL) {
 											num_deleted++;
-											records[i][0] = '\0';//mark this for deletion
+                                            memset(&records[i][0],'\0',1);//mark this for deletion
 											break;
 										}
 									}
@@ -1421,7 +1414,7 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 										}
 										else if (cond == K_OR || cond == K_NULL) {
 											num_deleted++;
-											records[i][0] = '\0';//mark this for deletion
+                                            memset(&records[i][0],'\0',1);//mark this for deletion
 											break;
 										}
 									}
@@ -1434,7 +1427,7 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 										}
 										else if (cond == K_OR || cond == K_NULL) {
 											num_deleted++;
-											records[i][0] = '\0';//mark this for deletion
+                                            memset(&records[i][0],'\0',1);//mark this for deletion
 											break;
 										}
 
@@ -1461,9 +1454,10 @@ int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file
 	for (int i = 0; i < num_deleted; i++)
     {
         if (records[i][0] == '\0')
-            memcpy(records[i], records[(header->num_records)--], size_t (header->record_size));
+            memcpy((void*) records[i], (void*) records[(header->num_records) - 1], size_t (header->record_size));
+        header->num_records--;
     }
-
+    header->file_size -= header->record_size * num_deleted;
     return num_deleted;
 
 }
