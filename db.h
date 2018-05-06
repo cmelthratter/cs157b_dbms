@@ -211,6 +211,7 @@ char* toupper(const char* string);
 cd_entry* get_projected_columns(cd_entry* columns, token_list* tok, int num_columns, int* p_record_size, int *num_pcols);
 int get_record_size(cd_entry* columns, int num_cols);
 int delete_records(token_list* tok, cd_entry* columns, int num_columns, table_file_header* header, char** records);
+int update_records(token_list* tok, token_list *val_cur, token_list *where, cd_entry* columns, int num_columns, cd_entry *update_columns, int num_u_columns, char** records, int num_records, int *num_updated );
 /*
 	Keep a global list of tpd - in real life, this will be stored
 	in shared memory.  Build a set of functions/methods around this.

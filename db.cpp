@@ -350,13 +350,13 @@ int do_semantic(token_list *tok_list)
 		cur_cmd = SELECT;
 		cur = cur->next;
 	}
-    else if ((cur->tok_value == K_DELETE))
+    else if ((cur->tok_value == K_DELETE) && ((cur->next != NULL) &&(cur->next->tok_value == K_FROM)))
     {
         printf("DELETE statement\n");
         cur_cmd = DELETE;
         cur = cur->next;
     }
-    else if ((cur->tok_value == K_UPDATE) && ((cur->next != NULL) &&(cur->next->tok_value == K_SET)))
+    else if ((cur->tok_value == K_UPDATE) && ((cur->next != NULL) &&(cur->next->tok_value == IDENT)))
 	{
 		printf("UPDATE statement\n");
 		cur_cmd = UPDATE;
@@ -1141,6 +1141,229 @@ int sem_delete(token_list *tok)
 	}
 
     return rc;
+}
+
+int sem_update(token_list *tok)
+{
+    token_list *cur = tok;
+    int rc = 0;
+    tpd_entry *tab_entry = NULL;
+    tab_entry = (tpd_entry*) malloc(sizeof(tpd_entry));
+    table_file_header *tf_header;
+    cd_entry* columns = NULL;
+    char** records;
+    cd_entry* update_columns;
+    int num_updated = 0;
+
+
+    if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+    {
+        printf("ERROR: table %s does not exist\n", cur->tok_string);
+        rc = TABLE_NOT_EXIST;
+        cur->tok_value = INVALID;
+    }
+    else
+    {
+        tf_header = load_file_header(tab_entry->table_name);
+        columns = load_columns_from_file(tab_entry);
+        records = load_table_records(tab_entry, tf_header);
+        cur = cur->next;
+        if (cur->tok_value != K_SET)
+        {
+            printf("ERROR: Invalid statement, expected 'SET', got %s\n", cur->tok_string);
+            rc = INVALID_STATEMENT;
+            cur->tok_value = INVALID;
+        }
+        else
+        {
+            cur = cur->next;
+            if (cur->tok_value != IDENT)
+            {
+                printf("ERROR: Invalid statement, expected identifier\n");
+                rc = INVALID_STATEMENT;
+                cur->tok_value = INVALID;
+            }
+            else
+            {
+
+                t_list* counter = cur;
+                bool where = false;
+                int num_columns = 0;
+                while ((counter->tok_value != EOC && counter->tok_value != K_WHERE) && !rc && cur != NULL)
+				{
+					num_columns++;
+					counter = counter->next;
+					if (counter->tok_value != S_EQUAL)
+					{
+						rc = INVALID_STATEMENT;
+						printf("ERROR: expected '=', got %s", counter->next->tok_string);
+						counter->next->tok_value = INVALID;
+					}
+					counter = counter->next;
+					if (counter->tok_value != STRING_LITERAL && counter->tok_value != INT_LITERAL && counter->tok_value != K_NULL)
+					{
+						rc = INVALID_STATEMENT;
+						printf("ERROR: expected string literal, int literal, or null keyword, got %s\n", counter->tok_string);
+					}
+					counter = counter->next;
+				}
+                if (counter->tok_value == K_WHERE) where = true;
+
+                update_columns = (cd_entry*) calloc((size_t ) num_columns, sizeof(cd_entry));
+
+                free(counter);
+                t_list* col_cur = cur;
+                int col_index = 0;
+                while (col_cur->tok_value!= EOC)
+                {
+                	if (col_cur->tok_value == S_EQUAL
+						|| col_cur->tok_value == INT_LITERAL
+						|| col_cur->tok_value == STRING_LITERAL
+						|| col_cur->tok_value == K_NULL)
+                	{
+                		col_cur = col_cur->next;
+                		continue;
+                	}
+                    //find the column specified
+                    for (int i = 0; i < tab_entry->num_columns; i++)
+                    {
+                        if (strcasecmp(columns[i].col_name, cur->tok_string) == 0)
+                        {
+                            memcpy((void*) &update_columns[col_index++], (void*) &columns[i], sizeof(cd_entry));//copy columns for update
+                            break;
+
+                        }
+
+                    }
+
+                    col_cur = col_cur->next;//skip to next statement
+
+
+                }
+
+                t_list *val_cur = cur->next->next;//go to first value
+                free(col_cur);
+                if (where)
+                {
+                    t_list *where_cur = cur;
+                    while ((where_cur = where_cur->next)->tok_value != K_WHERE );
+                    rc = update_records(cur, val_cur, where_cur, columns, tab_entry->num_columns, update_columns, num_columns, records, tf_header->num_records, &num_updated);
+                }
+                else
+				{
+					rc = update_records(cur, val_cur, NULL, columns, tab_entry->num_columns, update_columns, num_columns, records, tf_header->num_records, &num_updated);
+				}
+
+				if (!write_table_to_file(tab_entry, columns, tf_header, records))
+				{
+					printf("ERROR: unable to write records to table file\n");
+					rc = FILE_OPEN_ERROR;
+				}
+
+
+
+            }
+        }
+
+    }
+    return rc;
+
+}
+
+int update_records(token_list* tok, token_list *val_cur, token_list *where, cd_entry* columns, int num_columns, cd_entry *update_columns, int num_u_columns, char** records, int num_records, int *num_updated )
+{
+
+	int rc = 0;
+	t_list *cur = val_cur;//save the cursor at the first value
+	if (where == NULL)
+	{
+		int record_index = 0;
+		int record_mark = 0;
+		int upcol_index = 0;
+
+		while(cur != NULL && cur->tok_value != EOC)
+		{
+			record_mark = 0;
+			for (int j = 0; j < update_columns[upcol_index].col_id; j++)
+			{
+				record_mark += columns[j].col_len;
+				if (columns[j].col_type == T_CHAR || columns[j].col_type == T_VARCHAR) record_mark++;
+			}
+
+			if (cur->tok_value == K_NULL)
+			{
+				if (!update_columns[upcol_index++].not_null)
+				{
+					printf("ERROR: null update on a NOT NULL column\n");
+					cur->tok_value = INVALID;
+					rc = INVALID_STATEMENT;
+				}
+				else
+				{
+
+					record_index = record_mark;
+					for (int i = 0; i < num_records; i++)
+					{
+
+						memset(&records[i][record_index], '\0', (size_t) update_columns[upcol_index++].col_len);
+					}
+				}
+			}
+			else if (cur->tok_value == STRING_LITERAL)
+			{
+
+				record_index = record_mark;
+				for (int i = 0; i < num_records; i++)
+				{
+
+					if (update_columns[upcol_index].col_type != T_VARCHAR &&
+						update_columns[upcol_index].col_type != T_CHAR)
+					{
+						printf("ERROR: null update on a NOT NULL column\n");
+						cur->tok_value = INVALID;
+						rc = INVALID_STATEMENT;
+					}
+					int size = (int) strlen(cur->tok_string);
+					records[i][record_index++] = (unsigned char) size;
+					memcpy(&records[i][record_index], cur->tok_string, (size_t) size);
+				}
+
+			}
+			else if (cur->tok_value == INT_LITERAL)
+			{
+
+				record_index = record_mark;
+				for (int i = 0; i < num_records; i++)
+				{
+
+
+					if (update_columns[upcol_index].col_type != T_INT)
+					{
+						printf("ERROR: invalid type in value: %s\n", cur->tok_string);
+						rc = INVALID_TYPE_NAME;
+						cur->tok_value = INVALID;
+					} else
+					{
+						int value = atoi(cur->tok_string);
+						unsigned char *bytes = (unsigned char *) calloc(1, sizeof(int));
+						memcpy((void *) bytes, (void *) &value, sizeof(int));
+
+						memcpy(&records[i][record_index], bytes, sizeof(int));
+					}
+				}
+			}
+
+			cur = cur->next;
+		}
+
+		*num_updated = num_records;
+	}
+	else
+	{
+
+	}
+
+	return rc;
 }
 //selects records based on a conditional
 //tok should be everything after the WHERE statement
