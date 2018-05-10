@@ -117,6 +117,10 @@ typedef enum t_value
   K_IS,         // 34
   K_AND,        // 35
   K_OR,         // 36 - new keyword should be added below this line
+  K_BACKUP,
+  K_RESTORE,
+  K_ROLLFORWARD,
+  K_WITHOUT_RF,
   F_SUM,        // 37
   F_AVG,        // 38
 	F_COUNT,      // 39 - new function name should be added below this line
@@ -135,7 +139,7 @@ typedef enum t_value
 } token_value;
 
 /* This constants must be updated when add new keywords */
-#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 30
+#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 34
 /* New keyword must be added in the same position/order as the enum
    definition above, otherwise the lookup will be wrong */
 char *keyword_table[] = 
@@ -143,7 +147,7 @@ char *keyword_table[] =
   "int", "char", "varchar", "create", "table", "not", "null", "drop", "list", "schema",
   "for", "to", "insert", "into", "values", "delete", "from", "where", 
   "update", "set", "select", "order", "by", "desc", "is", "and", "or",
-  "sum", "avg", "count"
+  "backup", "restore", "rollforward", "without rf", "sum", "avg", "count"
 };
 
 /* This enum defines a set of possible statements */
@@ -157,7 +161,10 @@ typedef enum s_statement
   INSERT,                   // 104
   DELETE,                   // 105
   UPDATE,                   // 106
-  SELECT                    // 107
+  SELECT,                    // 107
+  ROLLFORWARD,
+  RESTORE,
+  BACKUP
 } semantic_statement;
 
 /* This enum has a list of all the errors that should be detected
@@ -201,6 +208,9 @@ int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
+int sem_backup(token_list *tok);
+int sem_rollforward(token_list *tok);
+int sem_restore(token_list *tok);
 void get_table_file_name(char* table_name, char* filename);
 cd_entry* load_columns_from_file(tpd_entry* tab_entry);
 table_file_header* load_file_header(char* tablename);
@@ -212,11 +222,19 @@ cd_entry* get_projected_columns(cd_entry* columns, token_list* tok, int num_colu
 int get_record_size(cd_entry* columns, int num_cols);
 int delete_records(token_list* tok, cd_entry* columns, int num_columns, table_file_header* header, char** records);
 int update_records(token_list* tok, token_list *val_cur, token_list *where, cd_entry* columns, int num_columns, cd_entry *update_columns, int num_u_columns, char** records, int num_records, int *num_updated );
+int create_image(token_list *tok);
+int restore_from_image(char* img_filename, bool without_rf);
+char** sort_records(int mode, char** records, cd_entry* columns, int id);
+char* get_timestamp();
 /*
 	Keep a global list of tpd - in real life, this will be stored
 	in shared memory.  Build a set of functions/methods around this.
 */
 tpd_list	*g_tpd_list;
+int ASC = 1;
+int DESC = 2;
+bool logging = true;//use this for the semantic processor to flick off if we have a select, backup, restore, or rollforward
+bool backup = false;//flick to truy if we have a backup command
 int initialize_tpd_list();
 int add_tpd_to_list(tpd_entry *tpd);
 int drop_tpd_from_list(char *tabname);

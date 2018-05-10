@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <ctime>
 
 #if defined(_WIN32) || defined(_WIN64)
   #define strcasecmp _stricmp
@@ -17,7 +18,13 @@
 int main(int argc, char** argv)
 {
 	int rc = 0;
+	FILE* log_fp;
+	if ((log_fp = fopen("db.log", "a")) == NULL)
+	{
+		printf("ERROR: unable to create/open log file\n");
+	}
 	token_list *tok_list=NULL, *tok_ptr=NULL, *tmp_tok_ptr=NULL;
+
 
 	if ((argc != 2) || (strlen(argv[1]) == 0))
 	{
@@ -64,18 +71,43 @@ int main(int argc, char** argv)
 				tok_ptr = tok_ptr->next;
 			}
 		}
+		else
+		{
+			if (log_fp != NULL)
+			{
+				if (logging)
+				{
+					fprintf(log_fp, "%s ", get_timestamp());
+					fprintf(log_fp, "\"%s\n", argv[1]);
+				}
+				else if (backup)
+                {
+                    fprintf(log_fp, "%s ", get_timestamp());
+                    token_list* cur = tok_list;
+                    while((cur = cur->next)->tok_value != K_BACKUP);
+                    fprintf(log_fp, "BACKUP %s\n", cur->next->tok_string);
+                }
+			}
+		}
 
     /* Whether the token list is valid or not, we need to free the memory */
 		tok_ptr = tok_list;
 		while (tok_ptr != NULL)
 		{
-      tmp_tok_ptr = tok_ptr->next;
-      free(tok_ptr);
-      tok_ptr=tmp_tok_ptr;
+			tmp_tok_ptr = tok_ptr->next;
+			free(tok_ptr);
+			tok_ptr=tmp_tok_ptr;
 		}
 	}
 
 	return rc;
+}
+char* get_timestamp()
+{
+    char *buff = (char*) malloc(20);
+    time_t now = time(NULL);
+    strftime(buff, 20, "%Y%m%d%H%M%S", localtime(&now));
+    return buff;
 }
 
 /************************************************************* 
@@ -362,12 +394,33 @@ int do_semantic(token_list *tok_list)
 		cur_cmd = UPDATE;
 		cur = cur->next;
 	}
-
+	else if ((cur->tok_value == K_BACKUP) && ((cur->next != NULL) && (cur->next->tok_value == K_TO)))
+	{
+		printf("BACKUP statement\n");
+		cur_cmd = BACKUP;
+		backup = true;
+		cur = cur->next;
+	}
+	else if ((cur->tok_value == K_RESTORE) && (cur->next != NULL) && (cur->next->tok_value = K_FROM))
+	{
+		printf("RESTORE statement\n");
+		cur_cmd = RESTORE;
+		cur = cur->next;
+	}
+	else if ((cur->tok_value == K_ROLLFORWARD))
+	{
+		printf("ROLLFORWARD statement\n");
+		cur_cmd = ROLLFORWARD;
+		cur = cur->next;
+	}
 	else
   	{
 		printf("Invalid statement\n");
 		rc = cur_cmd;
 	}
+
+	if (cur_cmd == SELECT || cur_cmd == BACKUP || cur_cmd == RESTORE || cur_cmd == ROLLFORWARD)
+		logging = false;
 
 	if (cur_cmd != INVALID_STATEMENT)
 	{
@@ -397,13 +450,22 @@ int do_semantic(token_list *tok_list)
 			case UPDATE:
 						rc = sem_update(cur);
 						break;
+			case BACKUP:
+						rc = sem_backup(cur);
+						break;
+			case RESTORE:
+						rc = sem_restore(cur);
+						break;
+			case ROLLFORWARD:
+						rc = sem_rollforward(cur);
+						break;
 			default:
 					; /* no action */
 		}
 	}
-	
 	return rc;
 }
+
 
 int sem_create_table(token_list *t_list)
 {
@@ -1270,6 +1332,253 @@ int sem_update(token_list *tok)
 
 }
 
+int sem_backup(token_list *tok)
+{
+	token_list *cur = tok;
+	int rc = 0;
+
+    if (cur->tok_value != K_TO)
+	{
+		printf("ERROR: expected 'TO', got '%s'\n", cur->tok_string);
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+
+	}
+	else
+	{
+		cur = cur->next;
+		if (cur->tok_value != IDENT)
+		{
+			printf("ERROR: expected identifier at '%s'\n", cur->tok_string);
+			rc = INVALID_STATEMENT;
+			cur->tok_value =  INVALID;
+
+		}
+		else
+		{
+			rc = create_image(cur);
+		}
+	}
+	free(cur);
+	return rc;
+
+}
+
+int file_exist (char *filename)
+{
+	struct stat   buffer;
+	return (stat (filename, &buffer) == 0);
+}
+
+int create_image(token_list *tok)
+{
+	token_list *cur = tok;
+	char img_filename[MAX_IDENT_LEN];
+	FILE* img_fp = NULL;
+	FILE* db_fp = NULL;
+	int rc = 0;
+	bool succesful = false;//true if we successfully wrote the image file
+
+	if (cur->tok_value != IDENT)
+	{
+		printf("ERROR: expected identifier at '%s'\n", cur->tok_string);
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+
+	}
+	else
+	{
+		strcpy(img_filename, cur->tok_string);
+		if (file_exist(img_filename))
+		{
+			printf("ERROR: Image file '%s' already exists.\n", img_filename );
+			rc = FILE_OPEN_ERROR;
+		}
+		else
+		{
+			if ((img_fp = fopen(img_filename, "wb")) == NULL)
+			{
+				printf("ERROR: unable to create file '%s'\n ", img_filename);
+				rc = FILE_OPEN_ERROR;
+			}
+			else
+			{
+				if ((db_fp = fopen("dbfile.bin", "rb")) == NULL)
+				{
+					printf("ERROR: unable to open 'dbfile.bin'\n");
+					rc = FILE_OPEN_ERROR;
+				}
+				else
+				{
+				    fseek(db_fp, 0, SEEK_END);
+					long db_length = ftell(db_fp);
+                    fseek(db_fp, 0, SEEK_SET);
+					char* dbfile_buffer = (char*) calloc(1, (size_t) db_length);
+					fread(dbfile_buffer, 1, (size_t) db_length, db_fp);
+					fwrite(dbfile_buffer, 1, (size_t) db_length, img_fp);
+					tpd_entry* cur_tab = &(g_tpd_list->tpd_start);
+					char table_file_name[FILENAME_MAX];
+					for (int i = 0; i < g_tpd_list->num_tables; i++)
+					{
+						get_table_file_name(cur_tab->table_name, table_file_name);
+						FILE* tab_fp;
+						table_file_header* tf_header = load_file_header(cur_tab->table_name);
+
+						if ((tab_fp = fopen(table_file_name, "rb")) == NULL)
+						{
+							printf("ERROR: unable to open table file '%s'\n", table_file_name);
+							rc = FILE_OPEN_ERROR;
+							break;
+						}
+
+						char table_buffer[tf_header->file_size];
+
+						fread(table_buffer, 1, (size_t) tf_header->file_size, tab_fp);
+						fprintf(img_fp, "%d", tf_header->file_size);
+						fwrite(table_buffer, 1, (size_t) tf_header->file_size, img_fp);
+                        cur_tab = (tpd_entry*)((char*)cur_tab + cur_tab->tpd_size);
+
+					}
+					succesful = true;
+
+				}
+			}
+		}
+
+	}
+	if (!succesful)
+	    remove(img_filename);
+	if (img_fp != NULL)  fflush(img_fp);
+	free(cur);
+	if (db_fp == NULL) free(db_fp);
+	return rc;
+
+}
+
+int sem_rollforward(token_list *tok)
+{
+
+}
+
+int sem_restore(token_list *tok)
+{
+    token_list* cur = tok;
+    int rc = 0;
+    char filename[MAX_IDENT_LEN];
+    if (cur->tok_value != K_FROM)
+    {
+        printf("ERROR: expected 'FROM', got '%s'\n", cur->tok_string );
+        rc = INVALID_STATEMENT;
+        cur->tok_value = INVALID;
+    }
+    else
+    {
+        cur = cur->next;
+        if (cur->tok_value != IDENT)
+        {
+            printf("ERROR: expected identifier, got '%s'\n", cur->tok_string);
+            rc = INVALID_STATEMENT;
+            cur->tok_value = INVALID;
+        }
+        else
+        {
+
+            strcpy(filename, cur->tok_string);
+            cur = cur->next;
+
+            if (cur->tok_value == EOC)
+            {
+                restore_from_image(filename, false);
+            }
+            else if (cur->tok_value == K_WITHOUT_RF)
+            {
+                restore_from_image(filename, true);
+            }
+            else
+            {
+                printf("ERROR: expected 'WITHOUT RF', got '%s'\n", cur->tok_string);
+                rc = INVALID_STATEMENT;
+                cur->tok_value = INVALID;
+            }
+        }
+    }
+    return rc;
+}
+
+int restore_from_image(char* img_filename, bool without_rf)
+{
+
+    FILE* log_fp;
+    FILE* img_fp;
+    FILE* db_fp;
+    FILE* tab_fp;
+    int rc = 0;
+    if ((log_fp = fopen("db.log", "r+")) == NULL)
+    {
+        printf("ERROR: unable to open db.log file\n");
+        rc = FILE_OPEN_ERROR;
+
+    }
+    else
+    {
+        if (!file_exist(img_filename))
+        {
+            printf("ERROR: image file '%s' does not exist\n", img_filename);
+            rc = FILE_OPEN_ERROR;
+
+        }
+        else if ((img_fp = fopen(img_filename, "r")) == NULL)
+        {
+            printf("ERROR: Unable to open image file '%s'\n", img_filename);
+            rc = FILE_OPEN_ERROR;
+        }
+        else
+        {
+            if ((db_fp = fopen("dbfile.bin", "w")) == NULL)
+            {
+                printf("ERROR: failed to open 'dbfile.bin'\n");
+                rc = FILE_OPEN_ERROR;
+
+            }
+            else
+            {
+                int db_file_size;
+                fread(&db_file_size, sizeof(int), 1, img_fp);
+                char* dbfile_buffer[db_file_size];
+                fread(dbfile_buffer, db_file_size, 1, img_fp);
+                fseek(img_fp, 0, SEEK_SET);
+                fread(g_tpd_list, db_file_size, 1, img_fp);
+                fwrite(dbfile_buffer, db_file_size, 1, db_fp);
+                tpd_entry* tab_entry = &g_tpd_list->tpd_start;
+                while (!feof(img_fp))
+                {
+                    int tab_size;
+                    fread(&tab_size, sizeof(int), 1, img_fp);
+                    table_file_header* tf_header = (table_file_header*) calloc(tab_size, 1);
+                    fread(tf_header, tab_size, 1, img_fp);
+                    char tab_filename[MAX_IDENT_LEN];
+                    get_table_file_name(tab_entry->table_name, tab_filename);
+                    if ((tab_fp = fopen(tab_filename, "w")) == NULL)
+                    {
+                        printf("ERROR: unable to restore from image '%s'; Unable to open table file '%s.tab'\n", img_filename, tab_filename);
+                        rc = FILE_OPEN_ERROR;
+                    }
+                    else
+                    {
+                        fwrite(tf_header, sizeof(tf_header), 1, tab_fp);
+                        tab_entry = (tpd_entry*)((char*)tab_entry + tab_entry->tpd_size);
+                    }
+
+                }
+
+
+            }
+        }
+    }
+
+    return rc;
+}
+
 int update_records(token_list* tok, token_list *val_cur, token_list *where, cd_entry* columns, int num_columns, cd_entry *update_columns, int num_u_columns, char** records, int num_records, int *num_updated )
 {
 
@@ -1519,6 +1828,93 @@ char** select_records(cd_entry* cols, char** records, token_list* tok, int num_r
 	return selection;
 
 }
+
+/*char** sort_records(int mode, char** records, int num_records, int record_size, cd_entry* columns, int id)
+{
+	if (mode == ASC)
+	{
+		if (columns[id].col_type == T_INT)
+		{
+			int min = -1;
+			int index = 0;
+			for (int i = 0; i < id; i++)
+			{
+				index += columns[i].col_len;
+				if (columns[i].col_type == T_CHAR || columns[i].col_type == T_VARCHAR) index++;
+
+			}
+
+			for (int i = 0; i < num_records; i++)
+			{
+				int value = 0;
+				char bytes[4];
+				memcpy(bytes, &records[i][index], sizeof(int));
+				value = (int) *bytes;
+				for (int j = 0; j < num_records; j++)
+				{
+					if (j == i) continue;
+					int value2 = 0;
+					char bytes2[4];
+					memcpy(bytes2, &records[i][index], sizeof(int));
+					value2 = (int) *bytes2;
+					if (value2 < value)
+					{
+						char* temp = (char*) calloc(sizeof(record_size, 1);
+						memcpy(temp, records[i], record_size);
+						memcpy(records[i], records[j], record_size);
+						memcpy(temp, records[j], record_size);
+
+					}
+				}
+			}
+
+		}
+		else
+		{
+
+			int index = 0;
+			for (int i = 0; i < id; i++)
+			{
+				index += columns[i].col_len;
+				if (columns[i].col_type == T_CHAR || columns[i].col_type == T_VARCHAR) index++;
+
+			}
+
+			for (int i = 0; i < num_records; i++)
+			{
+				int size = records[i][index++];
+				char bytes[size];
+				memcpy(bytes, &records[i][index], size);
+
+				for (int j = 0; j < num_records; j++)
+				{
+					int size = (int) records[j][index++];
+					char bytes2[size];
+					memcpy(bytes2, &records[j][index], size);
+
+
+					if (strcasecmp(bytes, bytes2) == 1)
+					{
+						char* temp = (char*) calloc(sizeof(record_size, 1);
+						memcpy(temp, records[i], record_size);
+						memcpy(records[i], records[j], record_size);
+						memcpy(temp, records[j], record_size);
+
+					}
+				}
+			}
+
+		}
+	}
+	else if (mode == DESC)
+	{
+
+	}
+	else
+	{
+		return NULL;
+	}
+}*/
 //deletes all records that meet a condition
 int delete_records(token_list* tok, cd_entry* columns,  int num_cols, table_file_header* header, char** records)
 {
